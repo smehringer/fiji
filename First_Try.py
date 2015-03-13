@@ -52,6 +52,16 @@ def calculateThresholdValue(imp):
 	
 	return(int((256-i)*steps) + mi)
 
+def getBgIntensity(imp,rm):
+	##
+	## goes over every pixel and adds it to background mean calculation if its not in any roi
+	##
+	val = 0
+	for x in range(imp.width):
+		for y in range(imp.height):
+			val = imp.getPixel(x,y)[0]
+	
+	return()
 
 def getInitialROIs(niba,pa):
 	
@@ -180,7 +190,7 @@ def countAndMeasureSPB(rm,cfp,pa,roi_table): # spindel-pole-bodies
 	for i in range(spb_table.count):
 		rm.deselect()
 		rt.reset()
-		if spb_table.getEntry(i,"area") < 3:
+		if spb_table.getEntry(i,"area") < 9:
 			rm.select(Zcfp,old_roi_count + i)
 			IJ.run("Enlarge...","enlarge=3")
 			rm.runCommand("Update")
@@ -230,26 +240,32 @@ def countAndMeasureSPB(rm,cfp,pa,roi_table): # spindel-pole-bodies
 			
 	return(spb_table)
 	
-def getRoiMeasurements(rm,roi_table):
+def getRoiMeasurements(rm,roi_table,niba):
+	
 	rois = rm.getRoisAsArray()
 	n = len(rois)
-	indexes = rm.getSelectedIndexes() # save cuurent selection
+	indexes = rm.getSelectedIndexes() # save current selection
 	rm.deselect()
-
-	IJ.run("Set Measurements...","area ; centroid ; bounding rectangle")
-	
+	Zniba = maxZprojection(niba,10,15);Zniba.show()
 	rt = ResultsTable.getResultsTable()
 	rt.reset()
+	IJ.run("Set Measurements...","area ; mean grey value ; centroid ;  integrated density ; bounding rectangle")
+	rm.deselect(); rm.setSelectedIndexes(range(rm.getCount()))
+	IJ.run(Zniba,"Make Inverse","")
+	IJ.run(Zniba,"Measure","")
+	mean_grey_value = rt.getValue('Mean',0)
+	rt.reset(); rm.deselect()
+
 	for i in range(n):
 		rm.select(i)
-		IJ.run("Measure","")
+		IJ.run(Zniba,"Measure","")
 		roi_table.addRow([rm.getName(i),rt.getValue('Area',i),0,[],0,[],rt.getValue('X',i),rt.getValue('Y',i),"no",
-			rt.getValue('BX',i),rt.getValue('BY',i),rt.getValue('Width',i),rt.getValue('Height',i)])
+			rt.getValue('IntDen',i),rt.getValue('Width',i),rt.getValue('Height',i)])
 		
 	rt.reset()
 	rm.deselect() 
 	rm.setSelectedIndexes(indexes) # restore selection
-	return(True)
+	return(mean_grey_value)
 
 def touchingRoi(roi,roi2):
 	r = roi.getBounds()
@@ -315,6 +331,8 @@ def combineTwoRois(index,index2,roi_table,rm):
 		roi_table.setEntry(index,"spb_id",roi_table.getEntry(index2,"spb_id")+roi_table.getEntry(index,"spb_id"))
 		roi_table.setEntry(index,"area",roi_table.getEntry(index2,"area")+roi_table.getEntry(index,"area"))
 		roi_table.setEntry(index,"name",roi_table.getEntry(index2,"name"))
+		roi_table.setEntry(index,"eval","yes")
+		print "~~~ Evaluated ROI",index,roi_table.getEntry(index,"name")
 		roi_table.delRow(index2)
 		return(True)
 	else: 
@@ -326,6 +344,8 @@ def combineTwoRois(index,index2,roi_table,rm):
 		roi_table.setEntry(index2,"spb",roi_table.getEntry(index,"spb")+roi_table.getEntry(index2,"spb"))
 		roi_table.setEntry(index2,"spb_id",roi_table.getEntry(index,"spb_id")+roi_table.getEntry(index2,"spb_id"))
 		roi_table.setEntry(index2,"area",roi_table.getEntry(index2,"area")+roi_table.getEntry(index,"area"))
+		roi_table.setEntry(index2,"eval","yes")
+		print "~~~ Evaluated ROI",index2,roi_table.getEntry(index2,"name")
 		roi_table.delRow(index)
 		
 	
@@ -365,7 +385,7 @@ def evaluate_noiseOrBud(index,roi,av,roi_area,rois_to_evaluate,rm,roi_table):
 		if touchingRoi(roi,rm.getRoi(check_roi)):
 			if roi_table.getEntry(check_roi,"nuclei") > 0:
 				touching_rois = touching_rois + [check_roi]
-				print "found a touching roi for roi " + str(index)
+				print "Found a touching roi ",check_roi,"for roi " + str(index)
 			
 	if len(touching_rois) == 0: 
 		rm.runCommand("Delete")
@@ -383,7 +403,6 @@ def evaluate_noiseOrBud(index,roi,av,roi_area,rois_to_evaluate,rm,roi_table):
 				evaluate_G2_vs_PM(touching_rois[0],roi_table,rm,nuclei_table,spb_table)
 			else: roi_table.setEntry(index,"name","cc: Late S")
 		
-		print touching_rois
 		combineTwoRois(index,touching_rois[0],roi_table,rm)
 		return(True,touching_rois[0])
 
@@ -503,18 +522,14 @@ initROI = getInitialROIs(niba,pa)
 initROI[0].show() # pic
 initROI[1].show() # manager
 rm = initROI[1]
-Zniba = initROI[0]
+#Zniba = initROI[0]
 
-roi_table = My_table(["name","area","nuclei","nuclei_id","spb","spb_id","X","Y","eval","BX","BY","width","height"])
+roi_table = My_table(["name","area","nuclei","nuclei_id","spb","spb_id","X","Y","eval","whi5","width","height"])
 
-getRoiMeasurements(rm,roi_table)
-
+mean_grey_value = getRoiMeasurements(rm,roi_table)
 	
 nuclei_table = countNuclei(rm,wu,raw_wu,pa,roi_table) # update roi_table with nuclei counts
 spb_table    = countAndMeasureSPB(rm,cfp,pa,roi_table)
-
-print spb_table
-print nuclei_table
 
 # now evaluate each roi
 
@@ -522,35 +537,49 @@ av = sum(roi_table.getColumn('area'))/rm.getCount() # average area
 
 cells_without_nuclei = roi_table.getIndexByEntry("nuclei",0)[::-1] 
 # reversed list -> if a roi is deleted no shift in roi indices occurs
-
+print "\n========================================= Start Evaluation=============================================\n"
+print "\n=============================== Cells to be Evaluated with no nuclei: ",cells_without_nuclei,"==========================\n"
 for index in cells_without_nuclei:
 	roi = rm.getRoi(index)
 	roi_area = roi_table.getEntry(index,"area")
-	print "### Evaluate roi" ,rm.getName(index),"with no nuclei and an area of",roi_area,":"
+	print "\n### Evaluate roi" ,rm.getName(index),"with no nuclei and an area of",roi_area,":"
 	# if roi has no nucleus and is smaller than half an average cell (do not depend merly on nuclei analysis)
 	# it is either noise or a bud
 	if roi_area <= av/2:
 		roi_table.setEntry(index,"eval","yes")
+		print "~~~ Evaluated ROI",index,roi_table.getEntry(index,"name")
 		rois_to_evaluate = roi_table.getIndexByEntry("eval","no")
-		# was roi disconnected from (an)other cell(s) by watershed?
-		watershedded = evaluate_watershed(index,roi,rm,roi_table)
-		if len(watershedded) != 0: print "was watershedded"
-		
+				
 		bud,mothercell_index = evaluate_noiseOrBud(index,roi,av,roi_area,rois_to_evaluate,rm,roi_table)
-		if mothercell_index != index : roi_table.setEntry(mothercell_index,"eval","yes")
+			
 
 cells_with_two_spbs = [c for c in roi_table.getIndexByEntry("spb",2)[::-1] if c in roi_table.getIndexByEntry("eval","no")]
-
+print "\n=============================== Cells to be Evaluated with twp spbs: ",cells_with_two_spbs,"==========================\n"
 for index in cells_with_two_spbs:
-	print "### Evaluate roi" ,rm.getName(index),"with two spindle poly bodies"
+	print "\n### Evaluate roi" ,rm.getName(index),"with two spindle poly bodies"
 	if roi_table.getEntry(index,"nuclei")==1:
 		evaluate_G2_vs_PM(index,roi_table,rm,nuclei_table,spb_table)
 		roi_table.setEntry(index,"eval","yes")
 	if roi_table.getEntry(index,"nuclei")>1:
 		roi_table.setEntry(index,"name","cc: ANA")
 		roi_table.setEntry(index,"eval","yes")
-		
+	print "~~~ Evaluated ROI",index,roi_table.getEntry(index,"name")
 
+
+cells_with_high_intensity_spb = [c for c in roi_table.getIndexByEntry("spb",1)[::-1] if roi_table.getEntry(c,"spb_id")[0] in spb_table.getIndexByEntry("high_intensity","yes") and c in roi_table.getIndexByEntry("eval","no")]
+print "\n=============================== Cells to be Evaluated with a spb of high intensity: ",cells_with_high_intensity_spb,"==========================\n"
+for index in cells_with_high_intensity_spb:
+	roi_table.setEntry(index,"name","cc: Late S")
+	roi_table.setEntry(index,"eval","yes")
+
+# if a cell had any near neighbours they would have been seperated by watershed
+cells_with_no_neighbour = [c for c in roi_table.getIndexByEntry("eval","no") if evaluate_watershed(c,roi,rm,roi_table)==False]
+print "\n=============================== Cells to be Evaluated without any neighbours: ",cells_with_two_spbs,"==========================\n"
+
+
+
+
+print "\n========================================= Done Evaluation=============================================\n"
 print roi_table
 print "Still to evaluate:",roi_table.getIndexByEntry("eval","no")
 print "### Done."
