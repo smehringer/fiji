@@ -30,7 +30,7 @@ def getVal(table, i):
 
 def calculateThresholdValue(imp):
 	##
-	## implements tha manual definable percentage of pixel when using Image>>Adjust>>Threshold
+	## implements tha manually definable percentage of pixel when using Image>>Adjust>>Threshold
 	##
 	# calculates a histogram of pixel values
 	ma = imp.getProcessor().getMax()
@@ -117,7 +117,7 @@ def countNuclei(rm,wu,raw_wu,pa,roi_table):
 	rois = rm.getRoisAsArray()
 	
 	pa.analyze(Zwu)	
-	nuclei_table = My_table(["area","nuclei_intensity","X","Y","width"])
+	nuclei_table = My_table(["area","nuclei_intensity","X","Y","width","height"])
 	
 	rt = ResultsTable.getResultsTable()
 	rt.reset()
@@ -128,7 +128,7 @@ def countNuclei(rm,wu,raw_wu,pa,roi_table):
 		IJ.run(Zwu,"Measure","")
 		i = i - old_roi_count # result table starts with 0
 		nuclei_table.addRow([rt.getValue('Area',i),rt.getValue('IntDen',i),
-						  rt.getValue('X',i),rt.getValue('Y',i),rt.getValue('Width',i)])
+						  rt.getValue('X',i),rt.getValue('Y',i),rt.getValue('Width',i),rt.getValue('Height',i)])
 		
 	for i in range(nuclei_table.count):
 		x = int(nuclei_table.getEntry(i,'X'))
@@ -298,6 +298,7 @@ def combineTwoRois(index,index2,roi_table,rm):
 		roi_table.setEntry(index,"spb",roi_table.getEntry(index2,"spb")+roi_table.getEntry(index,"spb"))
 		roi_table.setEntry(index,"spb_id",roi_table.getEntry(index2,"spb_id")+roi_table.getEntry(index,"spb_id"))
 		roi_table.setEntry(index,"area",roi_table.getEntry(index2,"area")+roi_table.getEntry(index,"area"))
+		roi_table.setEntry(index,"name",roi_table.getEntry(index2,"name"))
 		roi_table.delRow(index2)
 		return(True)
 	else: 
@@ -410,7 +411,9 @@ def evaluate_Bud(index,roi,touching_rois):
 	if roi_table.getEntry(index,"spb")==0:
 		# potential mother cells are those with two spb's
 		potential_mothercells = [i for i,x in touching_rois_spb if x == 2]
-		if len(potential_mothercells)==1: return(potential_mothercells)
+		if len(potential_mothercells)==1:
+			evaluate_G2_vs_PM(potential_mothercells[0],roi_table,rm,nuclei_table,spb_table)
+			return(potential_mothercells)
 		if len(potential_mothercells)>1 :
 			x = roi_table.getEntry(index,"X")
 			y = roi_table.getEntry(index,"Y")
@@ -426,7 +429,23 @@ def evaluate_Bud(index,roi,touching_rois):
 		spbs = sum([[ (((x-spb_table.getEntry(j,"X"))**2+(y-spb_table.getEntry(j,"Y"))**2)**(0.5),i) for j in roi_table.getEntry(i,"spb_id")] for i in touching_rois],[])
 		return([ sorted( spbs )[0][1] ])
 
+def evaluate_G2_vs_PM(index,roi_table,rm,nuclei_table,spb_table):
+	## if cell has two spindle-pole-bodys but one nucleus
+	## this function decides wether the cell cycle phase is G2 or P/M
+	## the decision is made by comparing the distance of the spb's to the nucleus diameter
+	
+	# get spb koordinates
+	sk = [(spb_table.getEntry(i,"X"),spb_table.getEntry(i,"Y")) for i in roi_table.getEntry(index,"spb_id")]
+	print sk,roi_table.getEntry(index,"spb_id")
+	d  = ( (sk[0][0] - sk[1][0])**2  + (sk[1][0] - sk[1][1])**2 )**(0.5) # euclidean distance
 
+	# get nuclei diameter (mean of height and width)
+	D = ( nuclei_table.getEntry(roi_table.getEntry(index,"nuclei_id")[0],"width") + 
+		  nuclei_table.getEntry(roi_table.getEntry(index,"nuclei_id")[0],"height") )/2
+	
+	if d > D: roi_table.setEntry(index,"name","cc: P/M")
+	else :    roi_table.setEntry(index,"name","cc: G2")
+	
 
 ############## main #######################
 
