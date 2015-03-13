@@ -129,14 +129,17 @@ def countNuclei(rm,wu,raw_wu,pa,roi_table):
 		i = i - old_roi_count # result table starts with 0
 		nuclei_table.addRow([rt.getValue('Area',i),rt.getValue('IntDen',i),
 						  rt.getValue('X',i),rt.getValue('Y',i),rt.getValue('Width',i),rt.getValue('Height',i)])
-		
+	av = sum(nuclei_table.getColumn("area"))/nuclei_table.count
+			
 	for i in range(nuclei_table.count):
-		x = int(nuclei_table.getEntry(i,'X'))
-		y = int(nuclei_table.getEntry(i,'Y'))
-		for roi in rois:
-			if roi.contains(x,y): 
-				roi_table.setEntry(rm.getRoiIndex(roi),"nuclei", roi_table.getEntry(rm.getRoiIndex(roi),"nuclei") + 1)
-				roi_table.setEntry(rm.getRoiIndex(roi),"nuclei_id", roi_table.getEntry(rm.getRoiIndex(roi),"nuclei_id") + [i])
+		# if nuclei is smaller than 10% of the average nuclei area it just might be noise
+		if nuclei_table.getEntry(i,"area") >= 0.1*av: 
+			x = int(nuclei_table.getEntry(i,'X'))
+			y = int(nuclei_table.getEntry(i,'Y'))
+			for roi in rois:
+				if roi.contains(x,y): 
+					roi_table.setEntry(rm.getRoiIndex(roi),"nuclei", roi_table.getEntry(rm.getRoiIndex(roi),"nuclei") + 1)
+					roi_table.setEntry(rm.getRoiIndex(roi),"nuclei_id", roi_table.getEntry(rm.getRoiIndex(roi),"nuclei_id") + [i])
 
 	rt.reset()		
 	rm.setSelectedIndexes(range(old_roi_count,rm.getCount()))
@@ -172,16 +175,29 @@ def countAndMeasureSPB(rm,cfp,pa,roi_table): # spindel-pole-bodies
 		i = i - old_roi_count # result table starts with 0
 		spb_table.addRow([rt.getValue('Area',i),rt.getValue('IntDen',i),"no",
 						  rt.getValue('X',i),rt.getValue('Y',i)])
-	
+
+	to_delete = []
 	for i in range(spb_table.count):
 		rm.deselect()
 		rt.reset()
 		if spb_table.getEntry(i,"area") < 3:
 			rm.select(Zcfp,old_roi_count + i)
-			IJ.run("Enlarge...","enlarge=2")
+			IJ.run("Enlarge...","enlarge=3")
 			rm.runCommand("Update")
-			IJ.run(Zcfp,"Measure","")
-			spb_table.setEntry(i,"spb_intensity",rt.getValue('IntDen',0))
+			touch = False
+			# if spb is now touching another one, it is probably noise
+			rs = range(old_roi_count,rm.getCount())
+			rs.remove(i+old_roi_count)
+			for r in rs:
+				if touchingRoi(rm.getRoi(i+old_roi_count),rm.getRoi(r)):
+					touch = True
+			if touch: to_delete = [i] + to_delete
+			else:
+				IJ.run(Zcfp,"Measure","")
+				spb_table.setEntry(i,"spb_intensity",rt.getValue('IntDen',0))
+	
+	for i in to_delete:
+		spb_table.delRow(i)
 	
 	for i in range(spb_table.count):
 		x = int(spb_table.getEntry(i,'X'))
@@ -362,6 +378,10 @@ def evaluate_noiseOrBud(index,roi,av,roi_area,rois_to_evaluate,rm,roi_table):
 		roi = rm.getRoi(index) # get updated enlarged roi
 		
 		if len(touching_rois) > 1: touching_rois = evaluate_Bud(index,roi,touching_rois)
+		else: 
+			if roi_table.getEntry(touching_rois[0],"spb")==2:
+				evaluate_G2_vs_PM(touching_rois[0],roi_table,rm,nuclei_table,spb_table)
+			else: roi_table.setEntry(index,"name","cc: Late S")
 		
 		print touching_rois
 		combineTwoRois(index,touching_rois[0],roi_table,rm)
@@ -419,6 +439,7 @@ def evaluate_Bud(index,roi,touching_rois):
 			y = roi_table.getEntry(index,"Y")
 			# take the cell that has the spb with the minimum distance to the bud (bud centroid)
 			spbs = sum([[ (((x-spb_table.getEntry(j,"X"))**2+(y-spb_table.getEntry(j,"Y"))**2)**(0.5),i) for j in roi_table.getEntry(i,"spb_id")] for i in potential_mothercells],[])
+			evaluate_G2_vs_PM(sorted( spbs )[0][1],roi_table,rm,nuclei_table,spb_table)
 			return([ sorted( spbs )[0][1] ])
 		else:
 			print "Could not evaluate bud. Leaving it to be manually evaluated"
@@ -427,6 +448,7 @@ def evaluate_Bud(index,roi,touching_rois):
 		y = spb_table.getEntry(roi_table.getEntry(index,"spb_id")[0],"Y")
 		# take the cell that has the spb with the minimum distance to the buds spb
 		spbs = sum([[ (((x-spb_table.getEntry(j,"X"))**2+(y-spb_table.getEntry(j,"Y"))**2)**(0.5),i) for j in roi_table.getEntry(i,"spb_id")] for i in touching_rois],[])
+		roi_table.setEntry(sorted( spbs )[0][1],"name","cc: P/M")
 		return([ sorted( spbs )[0][1] ])
 
 def evaluate_G2_vs_PM(index,roi_table,rm,nuclei_table,spb_table):
@@ -437,12 +459,12 @@ def evaluate_G2_vs_PM(index,roi_table,rm,nuclei_table,spb_table):
 	# get spb koordinates
 	sk = [(spb_table.getEntry(i,"X"),spb_table.getEntry(i,"Y")) for i in roi_table.getEntry(index,"spb_id")]
 	print sk,roi_table.getEntry(index,"spb_id")
-	d  = ( (sk[0][0] - sk[1][0])**2  + (sk[1][0] - sk[1][1])**2 )**(0.5) # euclidean distance
+	d  = ( (sk[0][0]-sk[1][0])**2  + (sk[0][1]-sk[1][1])**2 )**(0.5) # euclidean distance
 
 	# get nuclei diameter (mean of height and width)
 	D = ( nuclei_table.getEntry(roi_table.getEntry(index,"nuclei_id")[0],"width") + 
 		  nuclei_table.getEntry(roi_table.getEntry(index,"nuclei_id")[0],"height") )/2
-	
+	print "spb distance:",d,"nucleus diameter:",D
 	if d > D: roi_table.setEntry(index,"name","cc: P/M")
 	else :    roi_table.setEntry(index,"name","cc: G2")
 	
@@ -502,23 +524,33 @@ cells_without_nuclei = roi_table.getIndexByEntry("nuclei",0)[::-1]
 # reversed list -> if a roi is deleted no shift in roi indices occurs
 
 for index in cells_without_nuclei:
-	roi_table.setEntry(index,"eval","yes")
-	rois_to_evaluate = roi_table.getIndexByEntry("eval","no")
-	
 	roi = rm.getRoi(index)
 	roi_area = roi_table.getEntry(index,"area")
 	print "### Evaluate roi" ,rm.getName(index),"with no nuclei and an area of",roi_area,":"
 	# if roi has no nucleus and is smaller than half an average cell (do not depend merly on nuclei analysis)
 	# it is either noise or a bud
 	if roi_area <= av/2:
-		
+		roi_table.setEntry(index,"eval","yes")
+		rois_to_evaluate = roi_table.getIndexByEntry("eval","no")
 		# was roi disconnected from (an)other cell(s) by watershed?
 		watershedded = evaluate_watershed(index,roi,rm,roi_table)
 		if len(watershedded) != 0: print "was watershedded"
 		
-		bud,mothercell_index = evaluate_noiseOrBud(index,roi,av,roi_area,rois_to_evaluate,rm,roi_table)		
+		bud,mothercell_index = evaluate_noiseOrBud(index,roi,av,roi_area,rois_to_evaluate,rm,roi_table)
 		if mothercell_index != index : roi_table.setEntry(mothercell_index,"eval","yes")
+
+cells_with_two_spbs = [c for c in roi_table.getIndexByEntry("spb",2)[::-1] if c in roi_table.getIndexByEntry("eval","no")]
+
+for index in cells_with_two_spbs:
+	print "### Evaluate roi" ,rm.getName(index),"with two spindle poly bodies"
+	if roi_table.getEntry(index,"nuclei")==1:
+		evaluate_G2_vs_PM(index,roi_table,rm,nuclei_table,spb_table)
+		roi_table.setEntry(index,"eval","yes")
+	if roi_table.getEntry(index,"nuclei")>1:
+		roi_table.setEntry(index,"name","cc: ANA")
+		roi_table.setEntry(index,"eval","yes")
 		
+
 print roi_table
 print "Still to evaluate:",roi_table.getIndexByEntry("eval","no")
 print "### Done."
