@@ -112,8 +112,8 @@ def getInitialROIs(niba,pa):
 	rm.show()
 	return([Zniba,rm,table])
 
-def countNuclei(rm,wu,raw_wu,pa,roi_table):
-
+def countNuclei(rm,wu,raw_wu,pa,roi_table,niba):
+	
 	if raw_wu: Zwu = maxZprojection(wu,10,15)
 	else: Zwu = wu
 	
@@ -127,15 +127,16 @@ def countNuclei(rm,wu,raw_wu,pa,roi_table):
 	rois = rm.getRoisAsArray()
 	
 	pa.analyze(Zwu)	
-	nuclei_table = My_table(["area","nuclei_intensity","X","Y","width","height"])
-	
+	nuclei_table = My_table(["area","whi5","X","Y","width","height"])
+
+	Zniba = maxZprojection(niba,10,15);Zniba.show()
 	rt = ResultsTable.getResultsTable()
 	rt.reset()
 	IJ.run("Set Measurements...","area ; centroid ;  integrated density ; bounding rectangle")
 	rm.deselect()
 	for i in range(old_roi_count,rm.getCount()):
-		rm.select(Zwu,i)
-		IJ.run(Zwu,"Measure","")
+		rm.select(Zniba,i)
+		IJ.run(Zniba,"Measure","")
 		i = i - old_roi_count # result table starts with 0
 		nuclei_table.addRow([rt.getValue('Area',i),rt.getValue('IntDen',i),
 						  rt.getValue('X',i),rt.getValue('Y',i),rt.getValue('Width',i),rt.getValue('Height',i)])
@@ -406,7 +407,7 @@ def evaluate_noiseOrBud(index,roi,av,roi_area,rois_to_evaluate,rm,roi_table):
 		combineTwoRois(index,touching_rois[0],roi_table,rm)
 		return(True,touching_rois[0])
 
-def evaluate_watershed(index,roi,rm,roi_table):
+def evaluate_watershed(index,rm,roi_table):
 	# rois that are only 2 pixels apart can only (with a very high probability) 
 	# been seperated by watersehd
 	# -> check for touching rois in an 2 pixels wider area:
@@ -526,9 +527,9 @@ rm = initROI[1]
 
 roi_table = My_table(["name","area","nuclei","nuclei_id","spb","spb_id","X","Y","eval","whi5","width","height"])
 
-mean_grey_value = getRoiMeasurements(rm,roi_table)
+mean_grey_value = getRoiMeasurements(rm,roi_table,niba)
 	
-nuclei_table = countNuclei(rm,wu,raw_wu,pa,roi_table) # update roi_table with nuclei counts
+nuclei_table = countNuclei(rm,wu,raw_wu,pa,roi_table,niba) # update roi_table with nuclei counts
 spb_table    = countAndMeasureSPB(rm,cfp,pa,roi_table)
 
 # now evaluate each roi
@@ -573,10 +574,14 @@ for index in cells_with_high_intensity_spb:
 	roi_table.setEntry(index,"eval","yes")
 
 # if a cell had any near neighbours they would have been seperated by watershed
-cells_with_no_neighbour = [c for c in roi_table.getIndexByEntry("eval","no") if evaluate_watershed(c,roi,rm,roi_table)==False]
-print "\n=============================== Cells to be Evaluated without any neighbours: ",cells_with_two_spbs,"==========================\n"
-
-
+cells_with_no_neighbour = [c for c in roi_table.getIndexByEntry("eval","no") if evaluate_watershed(c,rm,roi_table)==False]
+print "\n=============================== Cells to be Evaluated without any neighbours: ",cells_with_no_neighbour,"==========================\n"
+for index in cells_with_no_neighbour:
+	if roi_table.getEntry(index,"nuclei") == 1:
+		nucleus_id = roi_table.getEntry(index,"nuclei_id")[0]
+		# berechnung nach http://theolb.readthedocs.org/en/latest/imaging/measuring-cell-fluorescence-using-imagej.html
+		whi5_diff = (roi_table.getEntry(index,"whi5") - (roi_table.getEntry(index,"area")*mean_grey_value) ) - (nuclei_table.getEntry(nucleus_id,"whi5") - (nuclei_table.getEntry(nucleus_id,"area")*mean_grey_value) )
+		print whi5_diff
 
 
 print "\n========================================= Done Evaluation=============================================\n"
