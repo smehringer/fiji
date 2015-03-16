@@ -403,7 +403,7 @@ def evaluate_noiseOrBud(index,roi,av,roi_area,rois_to_evaluate,rm,roi_table):
 			else: roi_table.setEntry(index,"name","Late S")
 		
 		roi_table.setEntry(index,"eval","yes")
-		print "~~~ Evaluated ROI",index2,roi_table.getEntry(index,"name")
+		print "~~~ Evaluated ROI",index,roi_table.getEntry(index,"name")
 		roi_table.setEntry(touching_rois[0],"eval","yes")
 		print "~~~ Evaluated ROI",touching_rois[0],roi_table.getEntry(touching_rois[0],"name")
 		
@@ -500,7 +500,7 @@ def evaluate_G2_vs_PM(index,roi_table,rm,nuclei_table,spb_table):
 def overlay_area(r,r2,rm):
 	roi  = rm.getRoi(r)
 	roi2 = rm.getRoi(r2)
-	r = rm.getRoi(roi).getBounds()
+	r = roi.getBounds()
 	count = 0
 	for x in range(r.width):
 		for y in range(r.height):
@@ -602,9 +602,26 @@ for index in cells_with_high_intensity_spb:
 remaining_cells = [(c,evaluate_watershed(c,rm,roi_table)) for c in roi_table.getIndexByEntry("eval","no") ]
 cells_with_too_many_neighbours = [(c,w) for c,w in remaining_cells if len(w)>=2][::-1]
 print "\n=============================== Cells to be Evaluated with too many neighbours: ",cells_with_too_many_neighbours,"==========================\n"
-chosen_cell = [ sorted([ (overlay_area(c,c2,rm),c2) for c2 in w ])[-1:][1] for c,w in cells_with_too_many_neighbours]
-for i in range(len(cells_with_too_many_neighbours)):
-	combineTwoRois(cells_with_too_many_neighbours[i][0],chosen_cell[i],roi_table,rm)
+#chosen_cell = [ sorted([ (overlay_area(c,c2,rm),c2) for c2 in w ])[-1:][1] for c,w in cells_with_too_many_neighbours]
+for c,w in cells_with_too_many_neighbours:
+	print av,c,roi_table.getEntry(c,"area")
+	if roi_table.getEntry(c,"area") <= av:
+		rm.select(c)
+		IJ.run("Enlarge...","enlarge=1")
+		rm.runCommand("Update")
+		chosen_cell = sorted([ (overlay_area(c,c1,rm),c1) for c1 in w ])[-1:][0][1]
+		combineTwoRois(c,chosen_cell,roi_table,rm)
+		print "Combined roi",c,chosen_cell
+	
+	for c1 in remaining_cells:
+		if c1[0] in w:
+			c1[1].remove(c)
+	
+	for c1 in remaining_cells:
+		if c1[0] == c:
+			copied_w = w + []
+			for w1 in copied_w:
+				c1[1].remove(w1)
 
 
 cells_with_one_neighbour = [(c,w) for c,w in remaining_cells if len(w)==1][::-1]
