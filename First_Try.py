@@ -150,7 +150,7 @@ def countNuclei(rm,wu,raw_wu,pa,roi_table,niba):
 			for roi in rois:
 				if roi.contains(x,y): 
 					roi_table.setEntry(rm.getRoiIndex(roi),"nuclei", roi_table.getEntry(rm.getRoiIndex(roi),"nuclei") + 1)
-					roi_table.setEntry(rm.getRoiIndex(roi),"nuclei_id", roi_table.getEntry(rm.getRoiIndex(roi),"nuclei_id") + [i])
+					roi_table.setEntry(rm.getRoiIndex(roi),"n_id", roi_table.getEntry(rm.getRoiIndex(roi),"n_id") + [i])
 
 	rt.reset()		
 	rm.setSelectedIndexes(range(old_roi_count,rm.getCount()))
@@ -260,8 +260,8 @@ def getRoiMeasurements(rm,roi_table,niba):
 	for i in range(n):
 		rm.select(i)
 		IJ.run(Zniba,"Measure","")
-		roi_table.addRow([rm.getName(i),rt.getValue('Area',i),0,[],0,[],rt.getValue('X',i),rt.getValue('Y',i),"no",
-			rt.getValue('IntDen',i),rt.getValue('Width',i),rt.getValue('Height',i)])
+		roi_table.addRow([rm.getName(i)[:4],rt.getValue('Area',i),0,[],0,[],int(rt.getValue('X',i)),int(rt.getValue('Y',i)),
+		"no",rt.getValue('IntDen',i),rt.getValue('Width',i),rt.getValue('Height',i)])
 		
 	rt.reset()
 	rm.deselect() 
@@ -327,13 +327,12 @@ def combineTwoRois(index,index2,roi_table,rm):
 		rm.select(index2)
 		rm.runCommand("delete")
 		roi_table.setEntry(index,"nuclei",roi_table.getEntry(index2,"nuclei")+roi_table.getEntry(index,"nuclei")) 
-		roi_table.setEntry(index,"nuclei_id",roi_table.getEntry(index2,"nuclei_id")+roi_table.getEntry(index,"nuclei_id"))
+		roi_table.setEntry(index,"n_id",roi_table.getEntry(index2,"n_id")+roi_table.getEntry(index,"n_id"))
 		roi_table.setEntry(index,"spb",roi_table.getEntry(index2,"spb")+roi_table.getEntry(index,"spb"))
 		roi_table.setEntry(index,"spb_id",roi_table.getEntry(index2,"spb_id")+roi_table.getEntry(index,"spb_id"))
 		roi_table.setEntry(index,"area",roi_table.getEntry(index2,"area")+roi_table.getEntry(index,"area"))
+		roi_table.setEntry(index,"whi5",roi_table.getEntry(index2,"whi5")+roi_table.getEntry(index,"whi5"))
 		roi_table.setEntry(index,"name",roi_table.getEntry(index2,"name"))
-		roi_table.setEntry(index,"eval","yes")
-		print "~~~ Evaluated ROI",index,roi_table.getEntry(index,"name")
 		roi_table.delRow(index2)
 		return(True)
 	else: 
@@ -341,12 +340,11 @@ def combineTwoRois(index,index2,roi_table,rm):
 		rm.select(index)
 		rm.runCommand("delete")
 		roi_table.setEntry(index2,"nuclei",roi_table.getEntry(index2,"nuclei")+roi_table.getEntry(index,"nuclei"))
-		roi_table.setEntry(index2,"nuclei_id",roi_table.getEntry(index2,"nuclei_id")+roi_table.getEntry(index,"nuclei_id"))
+		roi_table.setEntry(index2,"n_id",roi_table.getEntry(index2,"n_id")+roi_table.getEntry(index,"n_id"))
 		roi_table.setEntry(index2,"spb",roi_table.getEntry(index,"spb")+roi_table.getEntry(index2,"spb"))
 		roi_table.setEntry(index2,"spb_id",roi_table.getEntry(index,"spb_id")+roi_table.getEntry(index2,"spb_id"))
 		roi_table.setEntry(index2,"area",roi_table.getEntry(index2,"area")+roi_table.getEntry(index,"area"))
-		roi_table.setEntry(index2,"eval","yes")
-		print "~~~ Evaluated ROI",index2,roi_table.getEntry(index2,"name")
+		roi_table.setEntry(index2,"whi5",roi_table.getEntry(index2,"whi5")+roi_table.getEntry(index,"whi5"))
 		roi_table.delRow(index)
 		
 	
@@ -402,14 +400,19 @@ def evaluate_noiseOrBud(index,roi,av,roi_area,rois_to_evaluate,rm,roi_table):
 		else: 
 			if roi_table.getEntry(touching_rois[0],"spb")==2:
 				evaluate_G2_vs_PM(touching_rois[0],roi_table,rm,nuclei_table,spb_table)
-			else: roi_table.setEntry(index,"name","cc: Late S")
+			else: roi_table.setEntry(index,"name","Late S")
+		
+		roi_table.setEntry(index,"eval","yes")
+		print "~~~ Evaluated ROI",index2,roi_table.getEntry(index,"name")
+		roi_table.setEntry(touching_rois[0],"eval","yes")
+		print "~~~ Evaluated ROI",touching_rois[0],roi_table.getEntry(touching_rois[0],"name")
 		
 		combineTwoRois(index,touching_rois[0],roi_table,rm)
 		return(True,touching_rois[0])
 
 def evaluate_watershed(index,rm,roi_table):
 	# rois that are only 2 pixels apart can only (with a very high probability) 
-	# been seperated by watersehd
+	# have been seperated by watersehd
 	# -> check for touching rois in an 2 pixels wider area:
 	rm.deselect() 
 	rm.select(index)
@@ -418,27 +421,25 @@ def evaluate_watershed(index,rm,roi_table):
 	rm.runCommand("Update")
 	roi = rm.getRoi(index) # get updated enlarged roi
 
-	rois = rm.getRoisAsArray()
-	rois_without_current_roi = rois[:index] + rois[index+1:]
+	rois = roi_table.getIndexByEntry("eval","no")
+	rois.remove(index)
 	
 	# check if rois are even near the investigated roi
-	rois_in_range = []
-	for check_roi in rois_without_current_roi:
+	for check_roi in rois:
 		x1 =  roi_table.getEntry(index,'X')
-		x2 =  roi_table.getEntry(rm.getRoiIndex(check_roi),'X')
+		x2 =  roi_table.getEntry(check_roi,'X')
 		y1 =  roi_table.getEntry(index,'Y')
-		y2 =  roi_table.getEntry(rm.getRoiIndex(check_roi),'Y')
+		y2 =  roi_table.getEntry(check_roi,'Y')
 		w1 =  roi_table.getEntry(index,'width')
-		w2 =  roi_table.getEntry(rm.getRoiIndex(check_roi),'width')
+		w2 =  roi_table.getEntry(check_roi,'width')
 		h1 =  roi_table.getEntry(index,'height')
-		h2 =  roi_table.getEntry(rm.getRoiIndex(check_roi),'height')
-		if ( (abs(x1-x2) < w1/2 + w2/2) and (abs(y1-y2) < h1/2 + h2/2) ):
-			rois_in_range = rois_in_range + [check_roi]
+		h2 =  roi_table.getEntry(check_roi,'height')
+		if ( (abs(x1-x2) > w1/2 + w2/2) or (abs(y1-y2) > h1/2 + h2/2) ): rois.remove(check_roi)
 	
 	# check if rois in range touch investigated roi
 	touching_rois = []
-	for check_roi in rois_in_range:
-		if touchingRoi(roi,check_roi):
+	for check_roi in rois:
+		if touchingRoi(roi,rm.getRoi(check_roi)):
 			touching_rois = touching_rois + [check_roi]
 
 	IJ.run("Enlarge...","enlarge=-2")
@@ -468,7 +469,9 @@ def evaluate_Bud(index,roi,touching_rois):
 		y = spb_table.getEntry(roi_table.getEntry(index,"spb_id")[0],"Y")
 		# take the cell that has the spb with the minimum distance to the buds spb
 		spbs = sum([[ (((x-spb_table.getEntry(j,"X"))**2+(y-spb_table.getEntry(j,"Y"))**2)**(0.5),i) for j in roi_table.getEntry(i,"spb_id")] for i in touching_rois],[])
-		roi_table.setEntry(sorted( spbs )[0][1],"name","cc: P/M")
+		roi_table.setEntry(sorted( spbs )[0][1],"name","P/M")
+		rm.select(index)
+		rm.runCommand("Rename","P/M")
 		return([ sorted( spbs )[0][1] ])
 
 def evaluate_G2_vs_PM(index,roi_table,rm,nuclei_table,spb_table):
@@ -482,12 +485,30 @@ def evaluate_G2_vs_PM(index,roi_table,rm,nuclei_table,spb_table):
 	d  = ( (sk[0][0]-sk[1][0])**2  + (sk[0][1]-sk[1][1])**2 )**(0.5) # euclidean distance
 
 	# get nuclei diameter (mean of height and width)
-	D = ( nuclei_table.getEntry(roi_table.getEntry(index,"nuclei_id")[0],"width") + 
-		  nuclei_table.getEntry(roi_table.getEntry(index,"nuclei_id")[0],"height") )/2
+	D = ( nuclei_table.getEntry(roi_table.getEntry(index,"n_id")[0],"width") + 
+		  nuclei_table.getEntry(roi_table.getEntry(index,"n_id")[0],"height") )/2
 	print "spb distance:",d,"nucleus diameter:",D
-	if d > D: roi_table.setEntry(index,"name","cc: P/M")
-	else :    roi_table.setEntry(index,"name","cc: G2")
+	if d > D: 
+		roi_table.setEntry(index,"name","P/M")
+		rm.select(index)
+		rm.runCommand("Rename","P/M")
+	else :    
+		roi_table.setEntry(index,"name","G2")
+		rm.select(index)
+		rm.runCommand("Rename","G2")
 	
+def overlay_area(r,r2,rm):
+	roi  = rm.getRoi(r)
+	roi2 = rm.getRoi(r2)
+	r = rm.getRoi(roi).getBounds()
+	count = 0
+	for x in range(r.width):
+		for y in range(r.height):
+			if roi.contains(r.x+x , r.y+y):
+				if roi2.contains(r.x+x , r.y+y):
+					count = count +1
+	return(count)
+
 
 ############## main #######################
 
@@ -525,7 +546,7 @@ initROI[1].show() # manager
 rm = initROI[1]
 #Zniba = initROI[0]
 
-roi_table = My_table(["name","area","nuclei","nuclei_id","spb","spb_id","X","Y","eval","whi5","width","height"])
+roi_table = My_table(["name","area","nuclei","n_id","spb","spb_id","X","Y","eval","whi5","width","height"])
 
 mean_grey_value = getRoiMeasurements(rm,roi_table,niba)
 	
@@ -562,7 +583,8 @@ for index in cells_with_two_spbs:
 		evaluate_G2_vs_PM(index,roi_table,rm,nuclei_table,spb_table)
 		roi_table.setEntry(index,"eval","yes")
 	if roi_table.getEntry(index,"nuclei")>1:
-		roi_table.setEntry(index,"name","cc: ANA")
+		roi_table.setEntry(index,"name","ANA")
+		rm.runCommand("Rename","ANA")
 		roi_table.setEntry(index,"eval","yes")
 	print "~~~ Evaluated ROI",index,roi_table.getEntry(index,"name")
 
@@ -570,19 +592,59 @@ for index in cells_with_two_spbs:
 cells_with_high_intensity_spb = [c for c in roi_table.getIndexByEntry("spb",1)[::-1] if roi_table.getEntry(c,"spb_id")[0] in spb_table.getIndexByEntry("high_intensity","yes") and c in roi_table.getIndexByEntry("eval","no")]
 print "\n=============================== Cells to be Evaluated with a spb of high intensity: ",cells_with_high_intensity_spb,"==========================\n"
 for index in cells_with_high_intensity_spb:
-	roi_table.setEntry(index,"name","cc: Late S")
+	roi_table.setEntry(index,"name","Late S")
+	rm.select(index)
+	rm.runCommand("Rename","Late S")
 	roi_table.setEntry(index,"eval","yes")
 
-# if a cell had any near neighbours they would have been seperated by watershed
-cells_with_no_neighbour = [c for c in roi_table.getIndexByEntry("eval","no") if evaluate_watershed(c,rm,roi_table)==False]
-print "\n=============================== Cells to be Evaluated without any neighbours: ",cells_with_no_neighbour,"==========================\n"
-for index in cells_with_no_neighbour:
-	if roi_table.getEntry(index,"nuclei") == 1:
-		nucleus_id = roi_table.getEntry(index,"nuclei_id")[0]
-		# berechnung nach http://theolb.readthedocs.org/en/latest/imaging/measuring-cell-fluorescence-using-imagej.html
-		whi5_diff = (roi_table.getEntry(index,"whi5") - (roi_table.getEntry(index,"area")*mean_grey_value) ) - (nuclei_table.getEntry(nucleus_id,"whi5") - (nuclei_table.getEntry(nucleus_id,"area")*mean_grey_value) )
-		print whi5_diff
 
+# if a cell had any near neighbours they would have been seperated by watershed
+remaining_cells = [(c,evaluate_watershed(c,rm,roi_table)) for c in roi_table.getIndexByEntry("eval","no") ]
+cells_with_too_many_neighbours = [(c,w) for c,w in remaining_cells if len(w)>=2][::-1]
+print "\n=============================== Cells to be Evaluated with too many neighbours: ",cells_with_too_many_neighbours,"==========================\n"
+chosen_cell = [ sorted([ (overlay_area(c,c2,rm),c2) for c2 in w ])[-1:][1] for c,w in cells_with_too_many_neighbours]
+for i in range(len(cells_with_too_many_neighbours)):
+	combineTwoRois(cells_with_too_many_neighbours[i][0],chosen_cell[i],roi_table,rm)
+
+
+cells_with_one_neighbour = [(c,w) for c,w in remaining_cells if len(w)==1][::-1]
+print "\n=============================== Cells to be Evaluated with one neighbour: ",cells_with_one_neighbour,"==================\n"
+# remove doubles (if cell A and B are neighbours they should only be combined once!)
+for i in range(len(cells_with_one_neighbour)/2) :
+	cells_with_one_neighbour.remove((cells_with_one_neighbour[i][1][0],[cells_with_one_neighbour[i][0]]))
+for i in range(len(cells_with_one_neighbour)):
+	rm.select(cells_with_one_neighbour[i][0])
+	IJ.run("Enlarge...","enlarge=6")
+	rm.runCommand("Update")
+	combineTwoRois(cells_with_one_neighbour[i][0],cells_with_one_neighbour[i][1][0],roi_table,rm)
+
+
+remaining_cells = [ c for c in roi_table.getIndexByEntry("eval","no") ]
+print "\n=============================== Cells to be Evaluated (remaining): ",remaining_cells,"==========================\n"
+for index in remaining_cells:
+	nucleus_id = roi_table.getEntry(index,"n_id")[0]
+	whi5_diff = (roi_table.getEntry(index,"whi5")/(roi_table.getEntry(index,"area")))-(nuclei_table.getEntry(nucleus_id,"whi5")/(nuclei_table.getEntry(nucleus_id,"area")) )
+	print whi5_diff 
+	if roi_table.getEntry(index,"nuclei") == 1:
+		if whi5_diff <= -10 or roi_table.getEntry(index,"area")<= av:
+			roi_table.setEntry(index,"name","G1")
+			rm.select(index)
+			rm.runCommand("Rename","G1")
+		else:
+			roi_table.setEntry(index,"name","Early S")
+			rm.select(index)
+			rm.runCommand("Rename","Early S")
+		
+	if roi_table.getEntry(index,"nuclei") > 1:
+		if whi5_diff <= -6:
+			roi_table.setEntry(index,"name","T/C")
+			rm.select(index)
+			rm.runCommand("Rename","T/C")
+		else:
+			roi_table.setEntry(index,"name","ANA")
+			rm.select(index)
+			rm.runCommand("Rename","ANA")
+	roi_table.setEntry(index,"eval","yes")
 
 print "\n========================================= Done Evaluation=============================================\n"
 print roi_table
