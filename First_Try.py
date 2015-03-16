@@ -110,6 +110,7 @@ def getInitialROIs(niba,pa):
 	rm = RoiManager.getInstance()
 	Zniba.show()
 	rm.show()
+	Zniba.hide()
 	return([Zniba,rm,table])
 
 def countNuclei(rm,wu,raw_wu,pa,roi_table,niba):
@@ -128,7 +129,6 @@ def countNuclei(rm,wu,raw_wu,pa,roi_table,niba):
 	
 	pa.analyze(Zwu)	
 	nuclei_table = My_table(["area","whi5","X","Y","width","height"])
-
 	Zniba = maxZprojection(niba,10,15);Zniba.show()
 	rt = ResultsTable.getResultsTable()
 	rt.reset()
@@ -155,7 +155,7 @@ def countNuclei(rm,wu,raw_wu,pa,roi_table,niba):
 	rt.reset()		
 	rm.setSelectedIndexes(range(old_roi_count,rm.getCount()))
 	rm.runCommand("delete") # delete spindle pole body rois
-	
+	Zniba.hide()
 	return(nuclei_table)
 
 
@@ -238,7 +238,8 @@ def countAndMeasureSPB(rm,cfp,pa,roi_table): # spindel-pole-bodies
 	for i in spbs:
 		if spb_table.getEntry(i,"spb_intensity") >= 2*av_intensity:
 			spb_table.setEntry(i,"high_intensity","yes")
-			
+
+	Zcfp.hide()
 	return(spb_table)
 	
 def getRoiMeasurements(rm,roi_table,niba):
@@ -316,6 +317,7 @@ def shrinkRoi(roi,touching_rois):
 	return([touching_rois[i] for i in [x for x,y in enumerate(which) if y == 1]])
 
 def combineTwoRois(index,index2,roi_table,rm):
+	print "Combined",index,"and",index2
 	rm.deselect()
 	rm.setSelectedIndexes([index,index2])
 	rm.runCommand("OR")
@@ -554,7 +556,7 @@ nuclei_table = countNuclei(rm,wu,raw_wu,pa,roi_table,niba) # update roi_table wi
 spb_table    = countAndMeasureSPB(rm,cfp,pa,roi_table)
 
 # now evaluate each roi
-
+print roi_table
 av = sum(roi_table.getColumn('area'))/rm.getCount() # average area
 
 cells_without_nuclei = roi_table.getIndexByEntry("nuclei",0)[::-1] 
@@ -584,6 +586,7 @@ for index in cells_with_two_spbs:
 		roi_table.setEntry(index,"eval","yes")
 	if roi_table.getEntry(index,"nuclei")>1:
 		roi_table.setEntry(index,"name","ANA")
+		rm.select(index)
 		rm.runCommand("Rename","ANA")
 		roi_table.setEntry(index,"eval","yes")
 	print "~~~ Evaluated ROI",index,roi_table.getEntry(index,"name")
@@ -631,7 +634,7 @@ for i in range(len(cells_with_one_neighbour)/2) :
 	cells_with_one_neighbour.remove((cells_with_one_neighbour[i][1][0],[cells_with_one_neighbour[i][0]]))
 for i in range(len(cells_with_one_neighbour)):
 	rm.select(cells_with_one_neighbour[i][0])
-	IJ.run("Enlarge...","enlarge=6")
+	IJ.run("Enlarge...","enlarge=1")
 	rm.runCommand("Update")
 	combineTwoRois(cells_with_one_neighbour[i][0],cells_with_one_neighbour[i][1][0],roi_table,rm)
 
