@@ -36,21 +36,23 @@ def calculateThresholdValue(imp,percentage):
 	ma = imp.getProcessor().getMax()
 	mi = imp.getProcessor().getMin()
 	hist = [0 for i in range(256)]
-	steps = round((ma-mi)/256,3 )
-	
+	steps = round((ma-mi)/256 ,3 )
+	print ma,mi,steps
 	for x in range(imp.width):
 		for y in range(imp.height):
 			index = int( (imp.getPixel(x,y)[0]-mi)/steps )
 			if index >= 256: index = 255
 			hist[index] = hist[index] + 1
-	
+	print hist
 	i = 1
 	val = 0 # percent
 	while val < percentage: 
 		val = float(sum(hist[-i:])*100.0)/float(imp.width*imp.height)
 		i = i + 1
-	
-	return(int((256-i)*steps) + mi)
+		print i,int((256-i+1)*steps) + mi,int((256-i+1)*(ma-mi)/256)+mi,val
+		
+	print val,percentage,int((256-i+1)*steps) + mi,int((256-i+1)*(ma-mi)/256)+mi
+	return(int((256-i+2)*steps) + mi)
 
 def getBgIntensity(imp,rm):
 	##
@@ -124,10 +126,12 @@ def countNuclei(rm,wu,raw_wu,pa,roi_table,niba):
 	IJ.run(Zwu, "Smooth","")
 	IJ.run(Zwu, "Gaussian Blur...","radius=15")
 	Zwu.show()
+	
 	lower_threshold	= calculateThresholdValue(Zwu,3.3)
+	print lower_threshold
+	
 	Zwu.getProcessor().setThreshold(lower_threshold, Zwu.getProcessor().getMax(), ImageProcessor.NO_LUT_UPDATE)
 	IJ.run(Zwu, "Threshold","dark background")
-	
 	old_roi_count = rm.getCount()
 	rois = rm.getRoisAsArray()
 	
@@ -163,7 +167,7 @@ def countNuclei(rm,wu,raw_wu,pa,roi_table,niba):
 	return(nuclei_table)
 
 
-def countAndMeasureSPB(rm,cfp,pa,roi_table): # spindel-pole-bodies
+def countAndMeasureSPB(rm,cfp,pa,roi_table,mean_grey_value): # spindel-pole-bodies
 
 	old_roi_count = rm.getCount()
 	rois = rm.getRoisAsArray()
@@ -239,10 +243,10 @@ def countAndMeasureSPB(rm,cfp,pa,roi_table): # spindel-pole-bodies
 	else: av_intensity = float(sum(intensities[(len(intensities)/2)-1:(len(intensities)/2)+1]))/2.0
 	
 	for i in spbs:
-		if spb_table.getEntry(i,"spb_intensity") >= 2*av_intensity:
+		if spb_table.getEntry(i,"spb_intensity") >= 2.1*av_intensity:
 			spb_table.setEntry(i,"high_intensity","yes")
 
-	Zcfp.hide()
+	#Zcfp.hide()
 	return(spb_table)
 	
 def getRoiMeasurements(rm,roi_table,niba):
@@ -338,6 +342,7 @@ def combineTwoRois(index,index2,roi_table,rm):
 		roi_table.setEntry(index,"area",roi_table.getEntry(index2,"area")+roi_table.getEntry(index,"area"))
 		roi_table.setEntry(index,"whi5",roi_table.getEntry(index2,"whi5")+roi_table.getEntry(index,"whi5"))
 		roi_table.setEntry(index,"name",roi_table.getEntry(index2,"name"))
+		rm.select(index); rm.runCommand("Rename",roi_table.getEntry(index2,"name"))
 		roi_table.delRow(index2)
 		return(True)
 	else: 
@@ -428,7 +433,7 @@ def evaluate_watershed(index,rm,roi_table):
 
 	rois = roi_table.getIndexByEntry("eval","no")
 	rois.remove(index)
-	
+	rois2 = rois + [] # copy
 	# check if rois are even near the investigated roi
 	for check_roi in rois:
 		x1 =  roi_table.getEntry(index,'X')
@@ -439,11 +444,12 @@ def evaluate_watershed(index,rm,roi_table):
 		w2 =  roi_table.getEntry(check_roi,'width')
 		h1 =  roi_table.getEntry(index,'height')
 		h2 =  roi_table.getEntry(check_roi,'height')
-		if ( (abs(x1-x2) > w1/2 + w2/2) or (abs(y1-y2) > h1/2 + h2/2) ): rois.remove(check_roi)
-	
+		
+		# + 5 to encounter any rounding mistakes to be sure 
+		if ( (abs(x1-x2) > (w1/2 + w2/2 + 5)) or (abs(y1-y2) > (h1/2 + h2/2 + 5)) ): rois2.remove(check_roi)
 	# check if rois in range touch investigated roi
 	touching_rois = []
-	for check_roi in rois:
+	for check_roi in rois2:
 		if touchingRoi(roi,rm.getRoi(check_roi)):
 			touching_rois = touching_rois + [check_roi]
 
@@ -556,7 +562,7 @@ roi_table = My_table(["name","area","nuclei","n_id","spb","spb_id","X","Y","eval
 mean_grey_value = getRoiMeasurements(rm,roi_table,niba)
 	
 nuclei_table = countNuclei(rm,wu,raw_wu,pa,roi_table,niba) # update roi_table with nuclei counts
-spb_table    = countAndMeasureSPB(rm,cfp,pa,roi_table)
+spb_table    = countAndMeasureSPB(rm,cfp,pa,roi_table,mean_grey_value)
 
 # now evaluate each roi
 print roi_table
@@ -670,6 +676,6 @@ for index in remaining_cells:
 	roi_table.setEntry(index,"eval","yes")
 
 print "\n========================================= Done Evaluation=============================================\n"
-print roi_table
+print roi_table,spb_table
 print "Still to evaluate:",roi_table.getIndexByEntry("eval","no")
 print "### Done."
