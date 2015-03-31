@@ -105,7 +105,6 @@ def countNuclei(rm,wu,raw_wu,pa,roi_table,niba):
 	#Zwu.show()
 	
 	lower_threshold	= calculateThresholdValue(Zwu,3.3)
-	print lower_threshold
 	
 	Zwu.getProcessor().setThreshold(lower_threshold, Zwu.getProcessor().getMax(), ImageProcessor.NO_LUT_UPDATE)
 	IJ.run(Zwu, "Threshold","dark background")
@@ -113,12 +112,14 @@ def countNuclei(rm,wu,raw_wu,pa,roi_table,niba):
 	rois = rm.getRoisAsArray()
 	
 	pa.analyze(Zwu)
+	
 	nuclei_table = My_table(["area","whi5","X","Y","width","height"])
-	Zniba = maxZprojection(niba,10,15);Zniba.show()
+	Zniba = maxZprojection(niba,10,15);#Zniba.show()
 	rt = ResultsTable.getResultsTable()
 	rt.reset()
 	IJ.run("Set Measurements...","area ; centroid ;  integrated density ; bounding rectangle")
 	rm.deselect()
+	
 	for i in range(old_roi_count,rm.getCount()):
 		rm.select(Zniba,i)
 		IJ.run(Zniba,"Measure","")
@@ -140,7 +141,7 @@ def countNuclei(rm,wu,raw_wu,pa,roi_table,niba):
 	rt.reset()		
 	rm.setSelectedIndexes(range(old_roi_count,rm.getCount()))
 	rm.runCommand("delete") # delete spindle pole body rois
-	Zniba.hide()
+	#Zniba.hide()
 	return(nuclei_table)
 
 
@@ -155,8 +156,8 @@ def countAndMeasureSPB(rm,cfp,pa,roi_table,mean_grey_value): # spindel-pole-bodi
 	Zcfp.getProcessor().setThreshold(lower_threshold, Zcfp.getProcessor().getMax(), ImageProcessor.NO_LUT_UPDATE)
 	IJ.run(Zcfp, "Threshold","dark background")
 	IJ.run(Zcfp, "Despeckle","")
-	Zcfp.show()
-	
+	#Zcfp.show()
+
 	pa.analyze(Zcfp)	
 	spb_table = My_table(["area","spb_intensity","high_intensity","X","Y"])
 	
@@ -164,20 +165,21 @@ def countAndMeasureSPB(rm,cfp,pa,roi_table,mean_grey_value): # spindel-pole-bodi
 	rt.reset()
 	IJ.run("Set Measurements...","area ; min & max grey value; mean grey value; centroid ;  integrated density")
 	rm.deselect()
+	
 	for i in range(old_roi_count,rm.getCount()):
 		rm.select(Zcfp,i)
 		IJ.run(Zcfp,"Measure","")
 		i = i - old_roi_count # result table starts with 0
 		spb_table.addRow([rt.getValue('Area',i),rt.getValue('IntDen',i),"no",
 						  rt.getValue('X',i),rt.getValue('Y',i)])
-
+	
 	to_delete = []
 	for i in range(spb_table.count):
 		rm.deselect()
 		rt.reset()
 		if spb_table.getEntry(i,"area") < 9:
-			rm.select(Zcfp,old_roi_count + i)
-			IJ.run("Enlarge...","enlarge=3")
+			rm.select(Zcfp, old_roi_count + i)
+			IJ.run(Zcfp, "Enlarge...", "enlarge=3")
 			rm.runCommand("Update")
 			touch = False
 			# if spb is now touching another one, it is probably noise
@@ -223,7 +225,7 @@ def countAndMeasureSPB(rm,cfp,pa,roi_table,mean_grey_value): # spindel-pole-bodi
 		if spb_table.getEntry(i,"spb_intensity") >= 2.1*av_intensity:
 			spb_table.setEntry(i,"high_intensity","yes")
 
-	Zcfp.hide()
+	#Zcfp.hide()
 	return(spb_table)
 	
 def getRoiMeasurements(rm,roi_table,niba):
@@ -235,15 +237,21 @@ def getRoiMeasurements(rm,roi_table,niba):
 	Zniba = maxZprojection(niba,10,15);Zniba.show()
 	rt = ResultsTable.getResultsTable()
 	rt.reset()
+	
 	IJ.run("Set Measurements...","area ; mean grey value ; centroid ;  integrated density ; bounding rectangle")
-	rm.deselect(); rm.setSelectedIndexes(range(rm.getCount()))
+	
+	# get mean grey value
+	rm.deselect()
+	rm.setSelectedIndexes(range(rm.getCount()))
 	IJ.run(Zniba,"Make Inverse","")
 	IJ.run(Zniba,"Measure","")
 	mean_grey_value = rt.getValue('Mean',0)
-	rt.reset(); rm.deselect()
+	rt.reset()
+	rm.deselect()
 
+	# get measurements
 	for i in range(n):
-		rm.select(i)
+		rm.select(Zniba,i)
 		IJ.run(Zniba,"Measure","")
 		roi_table.addRow([rm.getName(i)[:4],rt.getValue('Area',i),0,[],0,[],int(rt.getValue('X',i)),int(rt.getValue('Y',i)),
 		"no",rt.getValue('IntDen',i),rt.getValue('Width',i),rt.getValue('Height',i)])
@@ -536,19 +544,26 @@ options = ParticleAnalyzer.ADD_TO_MANAGER | ParticleAnalyzer.EXCLUDE_EDGE_PARTIC
 pa = ParticleAnalyzer(options, ParticleAnalyzer.AREA, table, 0, 100000000)
 
 
+
+
+
+
 # get rois
 initROI = getInitialROIs(niba,pa)
-initROI[0].show() # pic
-initROI[1].show() # manager
 rm = initROI[1]
-#Zniba = initROI[0]
+Zniba = initROI[0]
 
 roi_table = My_table(["name","area","nuclei","n_id","spb","spb_id","X","Y","eval","whi5","width","height"])
 
 mean_grey_value = getRoiMeasurements(rm,roi_table,niba)
-	
 nuclei_table = countNuclei(rm,wu,raw_wu,pa,roi_table,niba) # update roi_table with nuclei counts
+
 spb_table    = countAndMeasureSPB(rm,cfp,pa,roi_table,mean_grey_value)
+initROI[0].show()
+
+	
+
+
 
 # now evaluate each roi
 print roi_table
