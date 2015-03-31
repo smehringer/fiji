@@ -59,9 +59,7 @@ def getInitialROIs(niba,pa):
 	IJ.run(Zniba, "Bandpass Filter...","filter_large=200 ; filter_small=10")
 	IJ.run(Zniba, "Gaussian Blur...","radius=10")
 	IJ.run(Zniba, "Threshold","Triangle")
-	IJ.run(Zniba, "Convert to Mask","")
 	
-	#table = ResultsTable()
 	rm = RoiManager.getInstance() 
 	if rm != None: rm.reset()
 	else: rm = RoiManager()
@@ -70,20 +68,17 @@ def getInitialROIs(niba,pa):
 		print "All ok"
 	else:
 		print "There was a problem in analyzing"
-	
-	rm = RoiManager.getInstance()
-	Zniba.show()
-	#rm.show()
-	
+		
 	for e in range(rm.getCount()):
 		rm.deselect()
-		rm.select(e)
-		IJ.run("Enlarge...","enlarge=6") 
+		rm.select(Zniba,e)
+		IJ.run(Zniba,"Enlarge...","enlarge=6") 
 		IJ.run(Zniba,"Fill","")
 	
 	rm.deselect()
-	rm.reset()
+	IJ.run(Zniba, "Make Binary","")
 	IJ.run(Zniba, "Watershed","")
+	rm.reset()
 	
 	if pa.analyze(Zniba):
 		print "All ok"
@@ -91,10 +86,10 @@ def getInitialROIs(niba,pa):
 		print "There was a problem in analyzing"
 
 	rm = RoiManager.getInstance()
-	Zniba.show()
+	#Zniba.show()
 	rm.show()
-	Zniba.hide()
-	Zniba.close()
+	#Zniba.hide()
+	#Zniba.close()
 	return([Zniba,rm,table])
 
 def countNuclei(rm,wu,raw_wu,pa,roi_table,niba):
