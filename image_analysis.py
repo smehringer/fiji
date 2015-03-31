@@ -1,6 +1,6 @@
 import re
 import os.path
-from ij import ImagePlus, IJ, Prefs
+from ij import ImagePlus, IJ, Prefs, WindowManager
 from ij.io import OpenDialog
 from ij.plugin import ZProjector
 from ij.plugin.frame import RoiManager
@@ -9,6 +9,7 @@ from ij.plugin.filter import ParticleAnalyzer
 from ij.plugin.filter import Binary, MaximumFinder
 from java.awt import Rectangle
 from ij.process import ImageProcessor
+from ij.gui import GenericDialog,WaitForUserDialog
 
 import sys
 sys.path.insert(0,'/home/basar/Personal/Svenja/Scripts/')
@@ -37,33 +38,17 @@ def calculateThresholdValue(imp,percentage):
 	mi = imp.getProcessor().getMin()
 	hist = [0 for i in range(256)]
 	steps = round((ma-mi)/256 ,3 )
-	print ma,mi,steps
 	for x in range(imp.width):
 		for y in range(imp.height):
 			index = int( (imp.getPixel(x,y)[0]-mi)/steps )
 			if index >= 256: index = 255
 			hist[index] = hist[index] + 1
-	print hist
 	i = 1
 	val = 0 # percent
 	while val < percentage: 
 		val = float(sum(hist[-i:])*100.0)/float(imp.width*imp.height)
 		i = i + 1
-		print i,int((256-i+1)*steps) + mi,int((256-i+1)*(ma-mi)/256)+mi,val
-		
-	print val,percentage,int((256-i+1)*steps) + mi,int((256-i+1)*(ma-mi)/256)+mi
 	return(int((256-i+2)*steps) + mi)
-
-def getBgIntensity(imp,rm):
-	##
-	## goes over every pixel and adds it to background mean calculation if its not in any roi
-	##
-	val = 0
-	for x in range(imp.width):
-		for y in range(imp.height):
-			val = imp.getPixel(x,y)[0]
-	
-	return()
 
 def getInitialROIs(niba,pa):
 	
@@ -74,15 +59,13 @@ def getInitialROIs(niba,pa):
 	IJ.run(Zniba, "Bandpass Filter...","filter_large=200 ; filter_small=10")
 	IJ.run(Zniba, "Gaussian Blur...","radius=10")
 	IJ.run(Zniba, "Threshold","Triangle")
+	IJ.run(Zniba, "Convert to Mask","")
 	
 	#table = ResultsTable()
 	rm = RoiManager.getInstance() 
 	if rm != None: rm.reset()
 	else: rm = RoiManager()
 
-	#options = ParticleAnalyzer.ADD_TO_MANAGER | ParticleAnalyzer.EXCLUDE_EDGE_PARTICLES
-	#pa = ParticleAnalyzer(options, ParticleAnalyzer.AREA, table, 0, 100000000)
-	#pa.setHideOutputImage(True)
 	if pa.analyze(Zniba):
 		print "All ok"
 	else:
@@ -91,7 +74,6 @@ def getInitialROIs(niba,pa):
 	rm = RoiManager.getInstance()
 	Zniba.show()
 	#rm.show()
-	#rois = rm.getRoisAsArray()
 	
 	for e in range(rm.getCount()):
 		rm.deselect()
@@ -100,7 +82,6 @@ def getInitialROIs(niba,pa):
 		IJ.run(Zniba,"Fill","")
 	
 	rm.deselect()
-	#pause = OpenDialog("Choose Track Data...", "")
 	rm.reset()
 	IJ.run(Zniba, "Watershed","")
 	
@@ -113,6 +94,7 @@ def getInitialROIs(niba,pa):
 	Zniba.show()
 	rm.show()
 	Zniba.hide()
+	Zniba.close()
 	return([Zniba,rm,table])
 
 def countNuclei(rm,wu,raw_wu,pa,roi_table,niba):
@@ -125,7 +107,7 @@ def countNuclei(rm,wu,raw_wu,pa,roi_table,niba):
 	IJ.run(Zwu, "Enhance Contrast","saturated Pixel=0.5")
 	IJ.run(Zwu, "Smooth","")
 	IJ.run(Zwu, "Gaussian Blur...","radius=15")
-	Zwu.show()
+	#Zwu.show()
 	
 	lower_threshold	= calculateThresholdValue(Zwu,3.3)
 	print lower_threshold
@@ -246,7 +228,7 @@ def countAndMeasureSPB(rm,cfp,pa,roi_table,mean_grey_value): # spindel-pole-bodi
 		if spb_table.getEntry(i,"spb_intensity") >= 2.1*av_intensity:
 			spb_table.setEntry(i,"high_intensity","yes")
 
-	#Zcfp.hide()
+	Zcfp.hide()
 	return(spb_table)
 	
 def getRoiMeasurements(rm,roi_table,niba):
@@ -274,6 +256,7 @@ def getRoiMeasurements(rm,roi_table,niba):
 	rt.reset()
 	rm.deselect() 
 	rm.setSelectedIndexes(indexes) # restore selection
+	Zniba.hide()
 	return(mean_grey_value)
 
 def touchingRoi(roi,roi2):
@@ -342,7 +325,7 @@ def combineTwoRois(index,index2,roi_table,rm):
 		roi_table.setEntry(index,"area",roi_table.getEntry(index2,"area")+roi_table.getEntry(index,"area"))
 		roi_table.setEntry(index,"whi5",roi_table.getEntry(index2,"whi5")+roi_table.getEntry(index,"whi5"))
 		roi_table.setEntry(index,"name",roi_table.getEntry(index2,"name"))
-		rm.select(index); rm.runCommand("Rename",roi_table.getEntry(index2,"name"))
+		rm.select(index); rm.runCommand("Rename",(str(index)+" - "+roi_table.getEntry(index2,"name")))
 		roi_table.delRow(index2)
 		return(True)
 	else: 
@@ -410,7 +393,14 @@ def evaluate_noiseOrBud(index,roi,av,roi_area,rois_to_evaluate,rm,roi_table):
 		else: 
 			if roi_table.getEntry(touching_rois[0],"spb")==2:
 				evaluate_G2_vs_PM(touching_rois[0],roi_table,rm,nuclei_table,spb_table)
-			else: roi_table.setEntry(index,"name","Late S")
+			else:
+				if roi_table.getEntry(index,"spb")==1:
+					roi_table.setEntry(touching_rois[0],"name","ANA")
+					rm.runCommand("Rename",(str(index)+" - ANA"))
+					# probably nuclei analysis was wrong
+				else:
+					roi_table.setEntry(touching_rois[0],"name","Late S")
+					rm.runCommand("Rename",(str(index)+" - Late S"))
 		
 		roi_table.setEntry(index,"eval","yes")
 		print "~~~ Evaluated ROI",index,roi_table.getEntry(index,"name")
@@ -482,7 +472,7 @@ def evaluate_Bud(index,roi,touching_rois):
 		spbs = sum([[ (((x-spb_table.getEntry(j,"X"))**2+(y-spb_table.getEntry(j,"Y"))**2)**(0.5),i) for j in roi_table.getEntry(i,"spb_id")] for i in touching_rois],[])
 		roi_table.setEntry(sorted( spbs )[0][1],"name","P/M")
 		rm.select(index)
-		rm.runCommand("Rename","P/M")
+		rm.runCommand("Rename",(str(index)+" - P/M"))
 		return([ sorted( spbs )[0][1] ])
 
 def evaluate_G2_vs_PM(index,roi_table,rm,nuclei_table,spb_table):
@@ -502,11 +492,11 @@ def evaluate_G2_vs_PM(index,roi_table,rm,nuclei_table,spb_table):
 	if d > D: 
 		roi_table.setEntry(index,"name","P/M")
 		rm.select(index)
-		rm.runCommand("Rename","P/M")
+		rm.runCommand("Rename",(str(index)+" - P/M"))
 	else :    
 		roi_table.setEntry(index,"name","G2")
 		rm.select(index)
-		rm.runCommand("Rename","G2")
+		rm.runCommand("Rename",(str(index)+" - G2"))
 	
 def overlay_area(r,r2,rm):
 	roi  = rm.getRoi(r)
@@ -520,8 +510,8 @@ def overlay_area(r,r2,rm):
 					count = count +1
 	return(count)
 
-
-############## main #######################
+		    	
+############################################# main ####################################################
 
 # get images
 op = OpenDialog("Choose Track Data...", "")
@@ -544,6 +534,7 @@ else:
 	raw_wu = True
 	wu   = IJ.openImage(path + whichIMG + "w5WU.TIF")   # DAPI staining of nuclei
 bf   = IJ.openImage(path + whichIMG + "w6BF.TIF")   # BrightField
+composite = IJ.openImage(path + "Composite_" + re.split("_",imgName)[5] + ".tif")
 
 table = ResultsTable()
 options = ParticleAnalyzer.ADD_TO_MANAGER | ParticleAnalyzer.EXCLUDE_EDGE_PARTICLES | ParticleAnalyzer.INCLUDE_HOLES
@@ -596,7 +587,7 @@ for index in cells_with_two_spbs:
 	if roi_table.getEntry(index,"nuclei")>1:
 		roi_table.setEntry(index,"name","ANA")
 		rm.select(index)
-		rm.runCommand("Rename","ANA")
+		rm.runCommand("Rename",(str(index)+" - ANA"))
 		roi_table.setEntry(index,"eval","yes")
 	print "~~~ Evaluated ROI",index,roi_table.getEntry(index,"name")
 
@@ -606,7 +597,7 @@ print "\n=============================== Cells to be Evaluated with a spb of hig
 for index in cells_with_high_intensity_spb:
 	roi_table.setEntry(index,"name","Late S")
 	rm.select(index)
-	rm.runCommand("Rename","Late S")
+	rm.runCommand("Rename",(str(index)+" - Late S"))
 	roi_table.setEntry(index,"eval","yes")
 
 
@@ -658,24 +649,57 @@ for index in remaining_cells:
 		if whi5_diff <= -10 or roi_table.getEntry(index,"area")<= av:
 			roi_table.setEntry(index,"name","G1")
 			rm.select(index)
-			rm.runCommand("Rename","G1")
+			rm.runCommand("Rename",(str(index)+" - G1"))
 		else:
 			roi_table.setEntry(index,"name","Early S")
 			rm.select(index)
-			rm.runCommand("Rename","Early S")
+			rm.runCommand("Rename",(str(index)+" - Early S"))
 		
 	if roi_table.getEntry(index,"nuclei") > 1:
 		if whi5_diff <= -6:
 			roi_table.setEntry(index,"name","T/C")
 			rm.select(index)
-			rm.runCommand("Rename","T/C")
+			rm.runCommand("Rename",(str(index)+" - T/C"))
 		else:
 			roi_table.setEntry(index,"name","ANA")
 			rm.select(index)
-			rm.runCommand("Rename","ANA")
+			rm.runCommand("Rename",(str(index)+" - ANA"))
 	roi_table.setEntry(index,"eval","yes")
 
 print "\n========================================= Done Evaluation=============================================\n"
-print roi_table,spb_table
-print "Still to evaluate:",roi_table.getIndexByEntry("eval","no")
+print roi_table
+wins = WindowManager.getIDList()
+for w in wins:
+	WindowManager.getImage(w).hide()
+ng.show()
+rm.runCommand("Show All")
+composite.show()
+rm.runCommand("Show All")
+bf.show()
+rm.runCommand("Show All")
+Zniba = Zniba = maxZprojection(niba,10,15)
+Zniba.show()
+rm.runCommand("Show All")
+IJ.run("Tile")
 print "### Done."
+
+WaitForUserDialog("Cellsegmentation was finished", "Please look at your images and make any neccessary changes with the ROI Manager. \n You delete ROIs or add new ones using Fiji. \n When you press OK the ROIs won't be accessible anymore. \n\n A next window will let you change the cell cycle phases.").show()
+
+gd = GenericDialog("Cell Cycle")  
+for r in range(rm.getCount()):
+	if len(re.split("\ -\ ",rm.getName(r)))==1: gd.addStringField(("roi#"+str(r))," ")
+	else:	gd.addStringField(("roi#"+str(r+1)), re.split("\ -\ ",rm.getName(r))[1] )   
+gd.showDialog()  
+
+if gd.wasCanceled():  
+	print "User canceled dialog!" 
+else:
+	# Read out the options  
+	for r in range(rm.getCount()):
+		name = gd.getNextString()
+wins = WindowManager.getIDList()
+for w in wins:
+	WindowManager.getImage(w).close()
+
+rm = RoiManager.getInstance()
+print rm.getCount()
