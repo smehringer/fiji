@@ -58,7 +58,10 @@ def getInitialROIs(niba,pa):
 	IJ.run(Zniba, "Smooth","")
 	IJ.run(Zniba, "Bandpass Filter...","filter_large=200 ; filter_small=10")
 	IJ.run(Zniba, "Gaussian Blur...","radius=10")
-	IJ.run(Zniba, "Threshold","Triangle")
+	
+	Zniba.show()
+	IJ.run(Zniba, "Threshold...","")
+	WaitForUserDialog("Segmentation Threshold", "Please alter threshold and press 'apply' before you proceed with OK").show()
 	
 	rm = RoiManager.getInstance() 
 	if rm != None: rm.reset()
@@ -130,14 +133,12 @@ def countNuclei(rm,wu,raw_wu,pa,roi_table,niba):
 	av = sum(nuclei_table.getColumn("area"))/nuclei_table.count
 			
 	for i in range(nuclei_table.count):
-		# if nuclei is smaller than 10% of the average nuclei area it just might be noise
-		if nuclei_table.getEntry(i,"area") >= 0.1*av: 
-			x = int(nuclei_table.getEntry(i,'X'))
-			y = int(nuclei_table.getEntry(i,'Y'))
-			for roi in rois:
-				if roi.contains(x,y): 
-					roi_table.setEntry(rm.getRoiIndex(roi),"nuclei", roi_table.getEntry(rm.getRoiIndex(roi),"nuclei") + 1)
-					roi_table.setEntry(rm.getRoiIndex(roi),"n_id", roi_table.getEntry(rm.getRoiIndex(roi),"n_id") + [i])
+		x = int(nuclei_table.getEntry(i,'X'))
+		y = int(nuclei_table.getEntry(i,'Y'))
+		for roi in rois:
+			if roi.contains(x,y): 
+				roi_table.setEntry(rm.getRoiIndex(roi),"nuclei", roi_table.getEntry(rm.getRoiIndex(roi),"nuclei") + 1)
+				roi_table.setEntry(rm.getRoiIndex(roi),"n_id", roi_table.getEntry(rm.getRoiIndex(roi),"n_id") + [i])
 
 	rt.reset()		
 	rm.setSelectedIndexes(range(old_roi_count,rm.getCount()))
@@ -532,18 +533,18 @@ whichIMG = re.split("w",imgName)
 whichIMG = whichIMG[0]
 
 cfp  = IJ.openImage(path + whichIMG + "w1CFP.TIF")  # spindle pole bodies
-niba = IJ.openImage(path + whichIMG + "w3NIBA.TIF") # TF Whi5
-ng   = IJ.openImage(path + whichIMG + "w5NG.TIF")   # mRNA spotting
-print os.path.exists( path + "MAX_" + whichIMG + "w6WU.tif"), path + "MAX_" + whichIMG + "w5WU.tif"
-if os.path.exists( path + "MAX_" + whichIMG + "w6WU.tif"):
+niba = IJ.openImage(path + whichIMG + "w2NIBA.TIF") # TF Whi5
+ng   = IJ.openImage(path + whichIMG + "w4NG.TIF")   # mRNA spotting
+print os.path.exists( path + "MAX_" + whichIMG + "w5WU.tif"), path + "MAX_" + whichIMG + "w5WU.tif"
+if os.path.exists( path + "MAX_" + whichIMG + "w5WU.tif"):
 	raw_wu = False
-	wu   = IJ.openImage(path + "MAX_" + whichIMG + "w6WU.tif")
+	wu   = IJ.openImage(path + "MAX_" + whichIMG + "w5WU.tif")
 	print "Use user input max projection of WU.tif"
 else:
 	raw_wu = True
-	wu   = IJ.openImage(path + whichIMG + "w6WU.TIF")   # DAPI staining of nuclei
+	wu   = IJ.openImage(path + whichIMG + "w5WU.TIF")   # DAPI staining of nuclei
 
-bf   = IJ.openImage(path + whichIMG + "w7BF.TIF")   # BrightField
+bf   = IJ.openImage(path + whichIMG + "w6BF.TIF")   # BrightField
 #composite = IJ.openImage(path + "Composite_" + re.split("_",imgName)[5] + ".tif")
 
 table = ResultsTable()
