@@ -515,7 +515,11 @@ def overlay_area(r,r2,rm):
 					count = count +1
 	return(count)
 
-		    	
+def high_whi5(index,nucleus_id,roi_table):
+	whi5_diff = (roi_table.getEntry(index,"whi5")/(roi_table.getEntry(index,"area")))-(nuclei_table.getEntry(nucleus_id,"whi5")/(nuclei_table.getEntry(nucleus_id,"area")) )
+	if whi5_diff <= -10: return True
+	else: return False	
+			    	
 ############################################# main ####################################################
 
 # get images
@@ -620,32 +624,35 @@ for index in cells_with_high_intensity_spb:
 remaining_cells = [(c,evaluate_watershed(c,rm,roi_table)) for c in roi_table.getIndexByEntry("eval","no") ]
 cells_with_too_many_neighbours = [(c,w) for c,w in remaining_cells if len(w)>=2][::-1]
 print "\n=============================== Cells to be Evaluated with too many neighbours: ",cells_with_too_many_neighbours,"==========================\n"
-#chosen_cell = [ sorted([ (overlay_area(c,c2,rm),c2) for c2 in w ])[-1:][1] for c,w in cells_with_too_many_neighbours]
 for c,w in cells_with_too_many_neighbours:
-	print av,c,roi_table.getEntry(c,"area")
-	if roi_table.getEntry(c,"area") <= av:
-		rm.select(c)
-		IJ.run("Enlarge...","enlarge=1")
-		rm.runCommand("Update")
-		chosen_cell = sorted([ (overlay_area(c,c1,rm),c1) for c1 in w ])[-1:][0][1]
-		combineTwoRois(c,chosen_cell,roi_table,rm)
-		print "Combined roi",c,chosen_cell
 	
-	for c1 in remaining_cells:
-		if c1[0] in w:
-			c1[1].remove(c)
+	rm.select(c)
+	IJ.run("Enlarge...","enlarge=1")
+	rm.runCommand("Update")
+	#choose the cell as a partner that has the most overlaying area
+	chosen_cell = sorted([ (overlay_area(c,c1,rm),c1) for c1 in w ])[-1:][0][1]
+	combineTwoRois(c,chosen_cell,roi_table,rm)
 	
-	for c1 in remaining_cells:
-		if c1[0] == c:
-			copied_w = w + []
-			for w1 in copied_w:
-				c1[1].remove(w1)
+	#evaluate cell
+	min_index = min(c,chosen_cell)
+	nucleus_id = roi_table.getEntry(min_index,"n_id")[0]
+	if high_whi5(min_index,nucleus_id,roi_table):
+		roi_table.setEntry(min_index,"name","T/C")
+		rm.select(min_index)
+		rm.runCommand("Rename",(str(min_index+1)+" - T/C"))
+	else:
+		roi_table.setEntry(min_index,"name","ANA")
+		rm.select(min_index)
+		rm.runCommand("Rename",(str(min_index+1)+" - ANA"))
+	roi_table.setEntry(min_index,"eval","yes")
 
-print roi_table
+#print roi_table
 #WaitForUserDialog("Cellsegmentation was finished", "Please look at your images and make any neccessary changes with the ROI Manager. \n You can delete ROIs or add new ones using Fiji. \n When you press OK a next window will let you change the cell cycle phases.").show()
 
 remaining_cells = [(c,evaluate_watershed(c,rm,roi_table)) for c in roi_table.getIndexByEntry("eval","no") ]
 cells_with_one_neighbour = [(c,w) for c,w in remaining_cells if len(w)==1][::-1]
+print "\n=============================== Cells to be Evaluated with one neighbour: ",cells_with_one_neighbour,"==================\n"
+
 for i in range(len(cells_with_one_neighbour)/2) :
 	cells_with_one_neighbour.remove((cells_with_one_neighbour[i][1][0],[cells_with_one_neighbour[i][0]]))
 print "\n=============================== Cells to be Evaluated with one neighbour: ",cells_with_one_neighbour,"==================\n"
@@ -655,34 +662,30 @@ for i in range(len(cells_with_one_neighbour)):
 	IJ.run("Enlarge...","enlarge=1")
 	rm.runCommand("Update")
 	combineTwoRois(cells_with_one_neighbour[i][0],cells_with_one_neighbour[i][1][0],roi_table,rm)
-
+	
 
 
 remaining_cells = [ c for c in roi_table.getIndexByEntry("eval","no") ]
 print "\n=============================== Cells to be Evaluated (remaining): ",remaining_cells,"==========================\n"
 for index in remaining_cells:
 	nucleus_id = roi_table.getEntry(index,"n_id")[0]
-	whi5_diff = (roi_table.getEntry(index,"whi5")/(roi_table.getEntry(index,"area")))-(nuclei_table.getEntry(nucleus_id,"whi5")/(nuclei_table.getEntry(nucleus_id,"area")) )
-	print whi5_diff 
-	if roi_table.getEntry(index,"nuclei") == 1:
-		if whi5_diff <= -10 or roi_table.getEntry(index,"area")<= av:
+	if roi_table.getEntry(index,"nuclei") == 1 and high_whi5(index,nucleus_id,roi_table):
 			roi_table.setEntry(index,"name","G1")
 			rm.select(index)
 			rm.runCommand("Rename",(str(index+1)+" - G1"))
-		else:
-			roi_table.setEntry(index,"name","Early S")
-			rm.select(index)
-			rm.runCommand("Rename",(str(index+1)+" - Early S"))
+	else:
+		roi_table.setEntry(index,"name","Early S")
+		rm.select(index)
+		rm.runCommand("Rename",(str(index+1)+" - Early S"))
 		
-	if roi_table.getEntry(index,"nuclei") > 1:
-		if whi5_diff <= -6:
-			roi_table.setEntry(index,"name","T/C")
-			rm.select(index)
-			rm.runCommand("Rename",(str(index+1)+" - T/C"))
-		else:
-			roi_table.setEntry(index,"name","ANA")
-			rm.select(index)
-			rm.runCommand("Rename",(str(index+1)+" - ANA"))
+	if roi_table.getEntry(index,"nuclei") > 1 and high_whi5(index,nucleus_id,roi_table):
+		roi_table.setEntry(index,"name","T/C")
+		rm.select(index)
+		rm.runCommand("Rename",(str(index+1)+" - T/C"))
+	else:
+		roi_table.setEntry(index,"name","ANA")
+		rm.select(index)
+		rm.runCommand("Rename",(str(index+1)+" - ANA"))
 	roi_table.setEntry(index,"eval","yes")
 
 print "\n========================================= Done Evaluation=============================================\n"
