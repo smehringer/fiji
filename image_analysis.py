@@ -1,7 +1,7 @@
 import re
 import os.path
 from ij import ImagePlus, IJ, Prefs, WindowManager
-from ij.io import OpenDialog
+from ij.io import OpenDialog, FileSaver
 from ij.plugin import ZProjector
 from ij.plugin.frame import RoiManager
 from ij.measure import ResultsTable
@@ -76,6 +76,7 @@ def getInitialROIs(niba,pa):
 		IJ.run(Zniba,"Fill","")
 	
 	rm.deselect()
+	Zniba.show()
 	IJ.run(Zniba, "Make Binary","")
 	IJ.run(Zniba, "Watershed","")
 	rm.reset()
@@ -101,8 +102,8 @@ def countNuclei(rm,wu,raw_wu,pa,roi_table,niba):
 	
 	IJ.run(Zwu, "Enhance Contrast","saturated Pixel=0.5")
 	IJ.run(Zwu, "Smooth","")
-	IJ.run(Zwu, "Gaussian Blur...","radius=15")
-	#Zwu.show()
+	IJ.run(Zwu, "Gaussian Blur...","radius=12")
+	Zwu.show()
 	
 	lower_threshold	= calculateThresholdValue(Zwu,3.3)
 	
@@ -226,6 +227,7 @@ def countAndMeasureSPB(rm,cfp,pa,roi_table,mean_grey_value): # spindel-pole-bodi
 			spb_table.setEntry(i,"high_intensity","yes")
 
 	#Zcfp.hide()
+	rt.reset()
 	return(spb_table)
 	
 def getRoiMeasurements(rm,roi_table,niba):
@@ -328,7 +330,7 @@ def combineTwoRois(index,index2,roi_table,rm):
 		roi_table.setEntry(index,"area",roi_table.getEntry(index2,"area")+roi_table.getEntry(index,"area"))
 		roi_table.setEntry(index,"whi5",roi_table.getEntry(index2,"whi5")+roi_table.getEntry(index,"whi5"))
 		roi_table.setEntry(index,"name",roi_table.getEntry(index2,"name"))
-		rm.select(index); rm.runCommand("Rename",(str(index)+" - "+roi_table.getEntry(index2,"name")))
+		rm.select(index); rm.runCommand("Rename",(str(index+1)+" - "+roi_table.getEntry(index2,"name")))
 		roi_table.delRow(index2)
 		return(True)
 	else: 
@@ -399,11 +401,11 @@ def evaluate_noiseOrBud(index,roi,av,roi_area,rois_to_evaluate,rm,roi_table):
 			else:
 				if roi_table.getEntry(index,"spb")==1:
 					roi_table.setEntry(touching_rois[0],"name","ANA")
-					rm.runCommand("Rename",(str(index)+" - ANA"))
+					rm.runCommand("Rename",(str(index+1)+" - ANA"))
 					# probably nuclei analysis was wrong
 				else:
 					roi_table.setEntry(touching_rois[0],"name","Late S")
-					rm.runCommand("Rename",(str(index)+" - Late S"))
+					rm.runCommand("Rename",(str(index+1)+" - Late S"))
 		
 		roi_table.setEntry(index,"eval","yes")
 		print "~~~ Evaluated ROI",index,roi_table.getEntry(index,"name")
@@ -475,7 +477,7 @@ def evaluate_Bud(index,roi,touching_rois):
 		spbs = sum([[ (((x-spb_table.getEntry(j,"X"))**2+(y-spb_table.getEntry(j,"Y"))**2)**(0.5),i) for j in roi_table.getEntry(i,"spb_id")] for i in touching_rois],[])
 		roi_table.setEntry(sorted( spbs )[0][1],"name","P/M")
 		rm.select(index)
-		rm.runCommand("Rename",(str(index)+" - P/M"))
+		rm.runCommand("Rename",(str(index+1)+" - P/M"))
 		return([ sorted( spbs )[0][1] ])
 
 def evaluate_G2_vs_PM(index,roi_table,rm,nuclei_table,spb_table):
@@ -495,11 +497,11 @@ def evaluate_G2_vs_PM(index,roi_table,rm,nuclei_table,spb_table):
 	if d > D: 
 		roi_table.setEntry(index,"name","P/M")
 		rm.select(index)
-		rm.runCommand("Rename",(str(index)+" - P/M"))
+		rm.runCommand("Rename",(str(index+1)+" - P/M"))
 	else :    
 		roi_table.setEntry(index,"name","G2")
 		rm.select(index)
-		rm.runCommand("Rename",(str(index)+" - G2"))
+		rm.runCommand("Rename",(str(index+1)+" - G2"))
 	
 def overlay_area(r,r2,rm):
 	roi  = rm.getRoi(r)
@@ -526,18 +528,19 @@ whichIMG = re.split("w",imgName)
 whichIMG = whichIMG[0]
 
 cfp  = IJ.openImage(path + whichIMG + "w1CFP.TIF")  # spindle pole bodies
-niba = IJ.openImage(path + whichIMG + "w2NIBA.TIF") # TF Whi5
-ng   = IJ.openImage(path + whichIMG + "w4NG.TIF")   # mRNA spotting
-print os.path.exists( path + "MAX_" + whichIMG + "w5WU.tif"), path + "MAX_" + whichIMG + "w5WU.tif"
-if os.path.exists( path + "MAX_" + whichIMG + "w5WU.tif"):
+niba = IJ.openImage(path + whichIMG + "w3NIBA.TIF") # TF Whi5
+ng   = IJ.openImage(path + whichIMG + "w5NG.TIF")   # mRNA spotting
+print os.path.exists( path + "MAX_" + whichIMG + "w6WU.tif"), path + "MAX_" + whichIMG + "w5WU.tif"
+if os.path.exists( path + "MAX_" + whichIMG + "w6WU.tif"):
 	raw_wu = False
-	wu   = IJ.openImage(path + "MAX_" + whichIMG + "w5WU.tif")
+	wu   = IJ.openImage(path + "MAX_" + whichIMG + "w6WU.tif")
 	print "Use user input max projection of WU.tif"
 else:
 	raw_wu = True
-	wu   = IJ.openImage(path + whichIMG + "w5WU.TIF")   # DAPI staining of nuclei
-bf   = IJ.openImage(path + whichIMG + "w6BF.TIF")   # BrightField
-composite = IJ.openImage(path + "Composite_" + re.split("_",imgName)[5] + ".tif")
+	wu   = IJ.openImage(path + whichIMG + "w6WU.TIF")   # DAPI staining of nuclei
+
+bf   = IJ.openImage(path + whichIMG + "w7BF.TIF")   # BrightField
+#composite = IJ.openImage(path + "Composite_" + re.split("_",imgName)[5] + ".tif")
 
 table = ResultsTable()
 options = ParticleAnalyzer.ADD_TO_MANAGER | ParticleAnalyzer.EXCLUDE_EDGE_PARTICLES | ParticleAnalyzer.INCLUDE_HOLES
@@ -551,15 +554,15 @@ pa = ParticleAnalyzer(options, ParticleAnalyzer.AREA, table, 0, 100000000)
 # get rois
 initROI = getInitialROIs(niba,pa)
 rm = initROI[1]
-Zniba = initROI[0]
+processed_Zniba = initROI[0]
 
 roi_table = My_table(["name","area","nuclei","n_id","spb","spb_id","X","Y","eval","whi5","width","height"])
 
 mean_grey_value = getRoiMeasurements(rm,roi_table,niba)
 nuclei_table = countNuclei(rm,wu,raw_wu,pa,roi_table,niba) # update roi_table with nuclei counts
-
-spb_table    = countAndMeasureSPB(rm,cfp,pa,roi_table,mean_grey_value)
 initROI[0].show()
+spb_table    = countAndMeasureSPB(rm,cfp,pa,roi_table,mean_grey_value)
+
 
 	
 
@@ -567,6 +570,8 @@ initROI[0].show()
 
 # now evaluate each roi
 print roi_table
+print nuclei_table
+print sum(roi_table.getColumn('area'))
 av = sum(roi_table.getColumn('area'))/rm.getCount() # average area
 
 cells_without_nuclei = roi_table.getIndexByEntry("nuclei",0)[::-1] 
@@ -579,12 +584,12 @@ for index in cells_without_nuclei:
 	print "\n### Evaluate roi" ,rm.getName(index),"with no nuclei and an area of",roi_area,":"
 	# if roi has no nucleus and is smaller than half an average cell (do not depend merly on nuclei analysis)
 	# it is either noise or a bud
-	if roi_area <= av/2:
-		roi_table.setEntry(index,"eval","yes")
-		print "~~~ Evaluated ROI",index,roi_table.getEntry(index,"name")
-		rois_to_evaluate = roi_table.getIndexByEntry("eval","no")
+	#if roi_area <= av/2:
+	roi_table.setEntry(index,"eval","yes")
+	print "~~~ Evaluated ROI",index,roi_table.getEntry(index,"name")
+	rois_to_evaluate = roi_table.getIndexByEntry("eval","no")
 				
-		bud,mothercell_index = evaluate_noiseOrBud(index,roi,av,roi_area,rois_to_evaluate,rm,roi_table)
+	bud,mothercell_index = evaluate_noiseOrBud(index,roi,av,roi_area,rois_to_evaluate,rm,roi_table)
 			
 
 cells_with_two_spbs = [c for c in roi_table.getIndexByEntry("spb",2)[::-1] if c in roi_table.getIndexByEntry("eval","no")]
@@ -597,7 +602,7 @@ for index in cells_with_two_spbs:
 	if roi_table.getEntry(index,"nuclei")>1:
 		roi_table.setEntry(index,"name","ANA")
 		rm.select(index)
-		rm.runCommand("Rename",(str(index)+" - ANA"))
+		rm.runCommand("Rename",(str(index+1)+" - ANA"))
 		roi_table.setEntry(index,"eval","yes")
 	print "~~~ Evaluated ROI",index,roi_table.getEntry(index,"name")
 
@@ -607,7 +612,7 @@ print "\n=============================== Cells to be Evaluated with a spb of hig
 for index in cells_with_high_intensity_spb:
 	roi_table.setEntry(index,"name","Late S")
 	rm.select(index)
-	rm.runCommand("Rename",(str(index)+" - Late S"))
+	rm.runCommand("Rename",(str(index+1)+" - Late S"))
 	roi_table.setEntry(index,"eval","yes")
 
 
@@ -636,17 +641,21 @@ for c,w in cells_with_too_many_neighbours:
 			for w1 in copied_w:
 				c1[1].remove(w1)
 
+print roi_table
+#WaitForUserDialog("Cellsegmentation was finished", "Please look at your images and make any neccessary changes with the ROI Manager. \n You can delete ROIs or add new ones using Fiji. \n When you press OK a next window will let you change the cell cycle phases.").show()
 
+remaining_cells = [(c,evaluate_watershed(c,rm,roi_table)) for c in roi_table.getIndexByEntry("eval","no") ]
 cells_with_one_neighbour = [(c,w) for c,w in remaining_cells if len(w)==1][::-1]
-print "\n=============================== Cells to be Evaluated with one neighbour: ",cells_with_one_neighbour,"==================\n"
-# remove doubles (if cell A and B are neighbours they should only be combined once!)
 for i in range(len(cells_with_one_neighbour)/2) :
 	cells_with_one_neighbour.remove((cells_with_one_neighbour[i][1][0],[cells_with_one_neighbour[i][0]]))
+print "\n=============================== Cells to be Evaluated with one neighbour: ",cells_with_one_neighbour,"==================\n"
+# remove doubles (if cell A and B are neighbours they should only be combined once!)
 for i in range(len(cells_with_one_neighbour)):
 	rm.select(cells_with_one_neighbour[i][0])
 	IJ.run("Enlarge...","enlarge=1")
 	rm.runCommand("Update")
 	combineTwoRois(cells_with_one_neighbour[i][0],cells_with_one_neighbour[i][1][0],roi_table,rm)
+
 
 
 remaining_cells = [ c for c in roi_table.getIndexByEntry("eval","no") ]
@@ -659,21 +668,21 @@ for index in remaining_cells:
 		if whi5_diff <= -10 or roi_table.getEntry(index,"area")<= av:
 			roi_table.setEntry(index,"name","G1")
 			rm.select(index)
-			rm.runCommand("Rename",(str(index)+" - G1"))
+			rm.runCommand("Rename",(str(index+1)+" - G1"))
 		else:
 			roi_table.setEntry(index,"name","Early S")
 			rm.select(index)
-			rm.runCommand("Rename",(str(index)+" - Early S"))
+			rm.runCommand("Rename",(str(index+1)+" - Early S"))
 		
 	if roi_table.getEntry(index,"nuclei") > 1:
 		if whi5_diff <= -6:
 			roi_table.setEntry(index,"name","T/C")
 			rm.select(index)
-			rm.runCommand("Rename",(str(index)+" - T/C"))
+			rm.runCommand("Rename",(str(index+1)+" - T/C"))
 		else:
 			roi_table.setEntry(index,"name","ANA")
 			rm.select(index)
-			rm.runCommand("Rename",(str(index)+" - ANA"))
+			rm.runCommand("Rename",(str(index+1)+" - ANA"))
 	roi_table.setEntry(index,"eval","yes")
 
 print "\n========================================= Done Evaluation=============================================\n"
@@ -683,33 +692,54 @@ for w in wins:
 	WindowManager.getImage(w).hide()
 ng.show()
 rm.runCommand("Show All")
-composite.show()
-rm.runCommand("Show All")
+#composite.show()
+#rm.runCommand("Show All")
 bf.show()
 rm.runCommand("Show All")
-Zniba = Zniba = maxZprojection(niba,10,15)
+Zniba = maxZprojection(niba,10,15)
 Zniba.show()
 rm.runCommand("Show All")
 IJ.run("Tile")
 print "### Done."
 
-WaitForUserDialog("Cellsegmentation was finished", "Please look at your images and make any neccessary changes with the ROI Manager. \n You delete ROIs or add new ones using Fiji. \n When you press OK the ROIs won't be accessible anymore. \n\n A next window will let you change the cell cycle phases.").show()
+def userDialog():
+	WaitForUserDialog("Cellsegmentation was finished", "Please look at your images and make any neccessary changes with the ROI Manager. \n You can delete ROIs or add new ones using Fiji. \n When you press OK a next window will let you change the cell cycle phases.").show()
 
-gd = GenericDialog("Cell Cycle")  
-for r in range(rm.getCount()):
-	if len(re.split("\ -\ ",rm.getName(r)))==1: gd.addStringField(("roi#"+str(r))," ")
-	else:	gd.addStringField(("roi#"+str(r+1)), re.split("\ -\ ",rm.getName(r))[1] )   
-gd.showDialog()  
-
-if gd.wasCanceled():  
-	print "User canceled dialog!" 
-else:
-	# Read out the options  
+	gd = GenericDialog("Cell Cycle")  
 	for r in range(rm.getCount()):
-		name = gd.getNextString()
-wins = WindowManager.getIDList()
-for w in wins:
-	WindowManager.getImage(w).close()
+		if len(re.split("\ -\ ",rm.getName(r)))==1: gd.addStringField(("roi#"+str(r+1))," ")
+		else:	gd.addStringField(("roi#"+str(r+1)), re.split("\ -\ ",rm.getName(r))[1] )   
+	gd.showDialog()  
+
+	if gd.wasCanceled(): 
+		print "User canceled dialog!"
+		for r in range(rm.getCount()):
+			name = gd.getNextString()
+			rm.deselect()
+			rm.select(r)
+			rm.runCommand("Rename",(str(r+1)+ " - "+ name))
+		return False	
+	else:
+		# Read out the options  
+		for r in range(rm.getCount()):
+			name = gd.getNextString()
+		return True
+
+u = userDialog()
+while(u == False): u = userDialog()
+
 
 rm = RoiManager.getInstance()
 print rm.getCount()
+rm.select(Zniba,0)
+rm.deselect()
+rm.runCommand("Show None")
+rm.runCommand("Save", "/home/svenja/Documents/data2/RoiSet.zip")
+fs = FileSaver(processed_Zniba) 
+fs.saveAsTiff("/home/svenja/Documents/data2/label.tiff")
+fs2 = FileSaver(Zniba) 
+fs2.saveAsTiff("/home/svenja/Documents/data2/wekaInput.tiff")
+
+wins = WindowManager.getIDList()
+for w in wins:
+	WindowManager.getImage(w).close()
