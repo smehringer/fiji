@@ -629,7 +629,7 @@ for c,w in cells_with_too_many_neighbours:
 	rm.select(c)
 	IJ.run("Enlarge...","enlarge=1")
 	rm.runCommand("Update")
-	#choose the cell as a partner that has the most overlaying area
+	#choose those cell as a partner that has the most overlaying area
 	chosen_cell = sorted([ (overlay_area(c,c1,rm),c1) for c1 in w ])[-1:][0][1]
 	combineTwoRois(c,chosen_cell,roi_table,rm)
 	
@@ -669,23 +669,24 @@ remaining_cells = [ c for c in roi_table.getIndexByEntry("eval","no") ]
 print "\n=============================== Cells to be Evaluated (remaining): ",remaining_cells,"==========================\n"
 for index in remaining_cells:
 	nucleus_id = roi_table.getEntry(index,"n_id")[0]
-	if roi_table.getEntry(index,"nuclei") == 1 and high_whi5(index,nucleus_id,roi_table):
+	if roi_table.getEntry(index,"nuclei") == 1:
+		if high_whi5(index,nucleus_id,roi_table):
 			roi_table.setEntry(index,"name","G1")
 			rm.select(index)
 			rm.runCommand("Rename",(str(index+1)+" - G1"))
-	else:
-		roi_table.setEntry(index,"name","Early S")
-		rm.select(index)
-		rm.runCommand("Rename",(str(index+1)+" - Early S"))
-		
-	if roi_table.getEntry(index,"nuclei") > 1 and high_whi5(index,nucleus_id,roi_table):
-		roi_table.setEntry(index,"name","T/C")
-		rm.select(index)
-		rm.runCommand("Rename",(str(index+1)+" - T/C"))
-	else:
-		roi_table.setEntry(index,"name","ANA")
-		rm.select(index)
-		rm.runCommand("Rename",(str(index+1)+" - ANA"))
+		else:
+			roi_table.setEntry(index,"name","Early S")
+			rm.select(index)
+			rm.runCommand("Rename",(str(index+1)+" - Early S"))
+	else:	
+		if high_whi5(index,nucleus_id,roi_table):
+			roi_table.setEntry(index,"name","T/C")
+			rm.select(index)
+			rm.runCommand("Rename",(str(index+1)+" - T/C"))
+		else:
+			roi_table.setEntry(index,"name","ANA")
+			rm.select(index)
+			rm.runCommand("Rename",(str(index+1)+" - ANA"))
 	roi_table.setEntry(index,"eval","yes")
 
 print "\n========================================= Done Evaluation=============================================\n"
