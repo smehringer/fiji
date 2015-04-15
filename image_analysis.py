@@ -322,7 +322,6 @@ def combineTwoRois(index,index2,roi_table,rm):
 		roi_table.setEntry(index,"area",roi_table.getEntry(index2,"area")+roi_table.getEntry(index,"area"))
 		roi_table.setEntry(index,"whi5",roi_table.getEntry(index2,"whi5")+roi_table.getEntry(index,"whi5"))
 		roi_table.setEntry(index,"name",roi_table.getEntry(index2,"name"))
-		rm.select(index); rm.runCommand("Rename",(str(index+1)+" - "+roi_table.getEntry(index2,"name")))
 		roi_table.delRow(index2)
 		return(True)
 	else: 
@@ -393,11 +392,9 @@ def evaluate_noiseOrBud(index,roi,av,roi_area,rois_to_evaluate,rm,roi_table):
 			else:
 				if roi_table.getEntry(index,"spb")==1:
 					roi_table.setEntry(touching_rois[0],"name","ANA")
-					rm.runCommand("Rename",(str(index+1)+" - ANA"))
 					# probably nuclei analysis was wrong
 				else:
 					roi_table.setEntry(touching_rois[0],"name","Late S")
-					rm.runCommand("Rename",(str(index+1)+" - Late S"))
 		
 		roi_table.setEntry(index,"eval","yes")
 		print "~~~ Evaluated ROI",index,roi_table.getEntry(index,"name")
@@ -468,8 +465,6 @@ def evaluate_Bud(index,roi,touching_rois):
 		# take the cell that has the spb with the minimum distance to the buds spb
 		spbs = sum([[ (((x-spb_table.getEntry(j,"X"))**2+(y-spb_table.getEntry(j,"Y"))**2)**(0.5),i) for j in roi_table.getEntry(i,"spb_id")] for i in touching_rois],[])
 		roi_table.setEntry(sorted( spbs )[0][1],"name","P/M")
-		rm.select(index)
-		rm.runCommand("Rename",(str(index+1)+" - P/M"))
 		return([ sorted( spbs )[0][1] ])
 
 def evaluate_G2_vs_PM(index,roi_table,rm,nuclei_table,spb_table):
@@ -490,12 +485,8 @@ def evaluate_G2_vs_PM(index,roi_table,rm,nuclei_table,spb_table):
 	# evaluate cell
 	if d > D: 
 		roi_table.setEntry(index,"name","P/M")
-		rm.select(index)
-		rm.runCommand("Rename",(str(index+1)+" - P/M"))
 	else :    
 		roi_table.setEntry(index,"name","G2")
-		rm.select(index)
-		rm.runCommand("Rename",(str(index+1)+" - G2"))
 	
 def overlay_area(r,r2,rm):
 	roi  = rm.getRoi(r)
@@ -599,8 +590,6 @@ for index in cells_with_two_spbs:
 		roi_table.setEntry(index,"eval","yes")
 	if roi_table.getEntry(index,"nuclei")>1:
 		roi_table.setEntry(index,"name","ANA")
-		rm.select(index)
-		rm.runCommand("Rename",(str(index+1)+" - ANA"))
 		roi_table.setEntry(index,"eval","yes")
 	print "~~~ Evaluated ROI",index,roi_table.getEntry(index,"name")
 
@@ -609,8 +598,6 @@ cells_with_high_intensity_spb = [c for c in roi_table.getIndexByEntry("spb",1)[:
 print "\n=============================== Cells to be Evaluated with a spb of high intensity: ",cells_with_high_intensity_spb,"==========================\n"
 for index in cells_with_high_intensity_spb:
 	roi_table.setEntry(index,"name","Late S")
-	rm.select(index)
-	rm.runCommand("Rename",(str(index+1)+" - Late S"))
 	roi_table.setEntry(index,"eval","yes")
 
 
@@ -632,12 +619,8 @@ for c,w in cells_with_too_many_neighbours:
 	nucleus_id = roi_table.getEntry(min_index,"n_id")[0]
 	if high_whi5(min_index,nucleus_id,roi_table):
 		roi_table.setEntry(min_index,"name","T/C")
-		rm.select(min_index)
-		rm.runCommand("Rename",(str(min_index+1)+" - T/C"))
 	else:
 		roi_table.setEntry(min_index,"name","ANA")
-		rm.select(min_index)
-		rm.runCommand("Rename",(str(min_index+1)+" - ANA"))
 	roi_table.setEntry(min_index,"eval","yes")
 
 #print roi_table
@@ -666,24 +649,25 @@ for index in remaining_cells:
 	if roi_table.getEntry(index,"nuclei") == 1:
 		if high_whi5(index,nucleus_id,roi_table):
 			roi_table.setEntry(index,"name","G1")
-			rm.select(index)
-			rm.runCommand("Rename",(str(index+1)+" - G1"))
 		else:
 			roi_table.setEntry(index,"name","Early S")
-			rm.select(index)
-			rm.runCommand("Rename",(str(index+1)+" - Early S"))
 	else:	
 		if high_whi5(index,nucleus_id,roi_table):
 			roi_table.setEntry(index,"name","T/C")
-			rm.select(index)
-			rm.runCommand("Rename",(str(index+1)+" - T/C"))
 		else:
 			roi_table.setEntry(index,"name","ANA")
-			rm.select(index)
-			rm.runCommand("Rename",(str(index+1)+" - ANA"))
 	roi_table.setEntry(index,"eval","yes")
 
 print "\n========================================= Done Evaluation=============================================\n"
+
+def renameRois(rm, roi_table):
+	rm.deselect()
+	for index in range(rm.getCount()):
+		rm.select(index)
+		rm.runCommand("Rename",(str(index+1)+ " - "+ roi_table.getEntry(index, "name")))
+		rm.deselect()
+
+renameRois(rm, roi_table)
 print roi_table
 wins = WindowManager.getIDList()
 for w in wins:
@@ -702,7 +686,7 @@ print "### Done."
 
 def userDialog():
 	WaitForUserDialog("Cellsegmentation was finished", "Please look at your images and make any neccessary changes with the ROI Manager. \n You can delete ROIs or add new ones using Fiji. \n When you press OK a next window will let you change the cell cycle phases.").show()
-
+	
 	gd = GenericDialog("Cell Cycle")  
 	for r in range(rm.getCount()):
 		if len(re.split("\ -\ ",rm.getName(r)))==1: gd.addStringField(("roi#"+str(r+1))," ")
