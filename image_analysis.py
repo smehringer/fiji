@@ -31,8 +31,10 @@ def getVal(table, i):
 
 def calculateThresholdValue(imp,percentage):
 	##
-	## implements tha manually definable percentage of pixel when using Image>>Adjust>>Threshold
+	## implements tha manually definable percentage of pixel 
+	## when thresholding (using Image>>Adjust>>Threshold)
 	##
+	
 	# calculates a histogram of pixel values
 	ma = imp.getProcessor().getMax()
 	mi = imp.getProcessor().getMin()
@@ -55,35 +57,23 @@ def getInitialROIs(niba,pa):
 	Zniba = maxZprojection(niba,10,15) # identify "good" slices instead of setting the start(10) and stop(15) slice?
 	
 	IJ.run(Zniba, "Enhance Contrast","saturated Pixel=0.5")
+	IJ.run(Zniba, "Subtract Background...","radius = 100 ; sliding_parabold")
+	IJ.run(Zniba, "Bandpass Filter...","filter_large=150 ; filter_small=10")
 	IJ.run(Zniba, "Smooth","")
-	IJ.run(Zniba, "Bandpass Filter...","filter_large=200 ; filter_small=10")
 	IJ.run(Zniba, "Gaussian Blur...","radius=10")
 	
 	Zniba.show()
 	IJ.run(Zniba, "Threshold...","")
 	WaitForUserDialog("Segmentation Threshold", "Please alter threshold and press 'apply' before you proceed with OK").show()
 	
+	Zniba.show()
+	IJ.run(Zniba, "Make Binary","")
+	IJ.run(Zniba, "Watershed","")
+
 	rm = RoiManager.getInstance() 
 	if rm != None: rm.reset()
 	else: rm = RoiManager()
 
-	if pa.analyze(Zniba):
-		print "All ok"
-	else:
-		print "There was a problem in analyzing"
-		
-	for e in range(rm.getCount()):
-		rm.deselect()
-		rm.select(Zniba,e)
-		IJ.run(Zniba,"Enlarge...","enlarge=6") 
-		IJ.run(Zniba,"Fill","")
-	
-	rm.deselect()
-	Zniba.show()
-	IJ.run(Zniba, "Make Binary","")
-	IJ.run(Zniba, "Watershed","")
-	rm.reset()
-	
 	if pa.analyze(Zniba):
 		print "All ok"
 	else:
@@ -202,7 +192,8 @@ def countAndMeasureSPB(rm,cfp,pa,roi_table,mean_grey_value): # spindel-pole-bodi
 		x = int(spb_table.getEntry(i,'X'))
 		y = int(spb_table.getEntry(i,'Y'))
 		for roi in rois:
-			if roi.contains(x,y): 
+			# because cast to int causes round off, check for possible points
+			if roi.contains(x,y) or roi.contains(x+1,y) or roi.contains(x,y+1) or roi.contains(x+1,y+1):  
 				roi_table.setEntry(rm.getRoiIndex(roi),"spb", roi_table.getEntry(rm.getRoiIndex(roi),"spb") + 1)
 				roi_table.setEntry(rm.getRoiIndex(roi),"spb_id", roi_table.getEntry(rm.getRoiIndex(roi),"spb_id") + [i])
 
@@ -482,19 +473,21 @@ def evaluate_Bud(index,roi,touching_rois):
 		return([ sorted( spbs )[0][1] ])
 
 def evaluate_G2_vs_PM(index,roi_table,rm,nuclei_table,spb_table):
+	##
 	## if cell has two spindle-pole-bodys but one nucleus
 	## this function decides wether the cell cycle phase is G2 or P/M
 	## the decision is made by comparing the distance of the spb's to the nucleus diameter
+	##
 	
-	# get spb koordinates
+	# get spb koordinates and (euclidean-)distance d between them
 	sk = [(spb_table.getEntry(i,"X"),spb_table.getEntry(i,"Y")) for i in roi_table.getEntry(index,"spb_id")]
-	print sk,roi_table.getEntry(index,"spb_id")
-	d  = ( (sk[0][0]-sk[1][0])**2  + (sk[0][1]-sk[1][1])**2 )**(0.5) # euclidean distance
+	d  = ( (sk[0][0]-sk[1][0])**2  + (sk[0][1]-sk[1][1])**2 )**(0.5)
 
-	# get nuclei diameter (mean of height and width)
+	# get nuclei diameter D (mean of height and width)
 	D = ( nuclei_table.getEntry(roi_table.getEntry(index,"n_id")[0],"width") + 
 		  nuclei_table.getEntry(roi_table.getEntry(index,"n_id")[0],"height") )/2
-	print "spb distance:",d,"nucleus diameter:",D
+
+	# evaluate cell
 	if d > D: 
 		roi_table.setEntry(index,"name","P/M")
 		rm.select(index)
@@ -533,18 +526,18 @@ whichIMG = re.split("w",imgName)
 whichIMG = whichIMG[0]
 
 cfp  = IJ.openImage(path + whichIMG + "w1CFP.TIF")  # spindle pole bodies
-niba = IJ.openImage(path + whichIMG + "w2NIBA.TIF") # TF Whi5
-ng   = IJ.openImage(path + whichIMG + "w4NG.TIF")   # mRNA spotting
-print os.path.exists( path + "MAX_" + whichIMG + "w5WU.tif"), path + "MAX_" + whichIMG + "w5WU.tif"
-if os.path.exists( path + "MAX_" + whichIMG + "w5WU.tif"):
+niba = IJ.openImage(path + whichIMG + "w3NIBA.TIF") # TF Whi5
+ng   = IJ.openImage(path + whichIMG + "w5NG.TIF")   # mRNA spotting
+print os.path.exists( path + "MAX_" + whichIMG + "w6WU.tif"), path + "MAX_" + whichIMG + "w5WU.tif"
+if os.path.exists( path + "MAX_" + whichIMG + "w6WU.tif"):
 	raw_wu = False
-	wu   = IJ.openImage(path + "MAX_" + whichIMG + "w5WU.tif")
+	wu   = IJ.openImage(path + "MAX_" + whichIMG + "w6WU.tif")
 	print "Use user input max projection of WU.tif"
 else:
 	raw_wu = True
-	wu   = IJ.openImage(path + whichIMG + "w5WU.TIF")   # DAPI staining of nuclei
+	wu   = IJ.openImage(path + whichIMG + "w6WU.TIF")   # DAPI staining of nuclei
 
-bf   = IJ.openImage(path + whichIMG + "w6BF.TIF")   # BrightField
+bf   = IJ.openImage(path + whichIMG + "w7BF.TIF")   # BrightField
 #composite = IJ.openImage(path + "Composite_" + re.split("_",imgName)[5] + ".tif")
 
 table = ResultsTable()
@@ -697,8 +690,8 @@ for w in wins:
 	WindowManager.getImage(w).hide()
 ng.show()
 rm.runCommand("Show All")
-#composite.show()
-#rm.runCommand("Show All")
+cfp.show()
+rm.runCommand("Show All")
 bf.show()
 rm.runCommand("Show All")
 Zniba = maxZprojection(niba,10,15)
@@ -728,6 +721,16 @@ def userDialog():
 		# Read out the options  
 		for r in range(rm.getCount()):
 			name = gd.getNextString()
+			correct = name in ["G1", "g1", "G2", "g2",
+								"Ana", "ANA", "ana",
+								"PM", "pm", "p/m", "P/M",
+								"early s", "Early S", "EARLY S", "early_s", "Early_S",
+								"late s", "Late S", "LATE S", "late_s", "Late_S",
+								"tc","TC","t/c","T/C"
+								]
+			if name == "" or correct== False: 
+				WaitForUserDialog("Cellcylcle names were incomplete or false", "You have not filled in all cellcycle names or no correct ones. \n Please check again and correct your input").show()
+				return False
 		return True
 
 u = userDialog()
@@ -740,10 +743,10 @@ rm.select(Zniba,0)
 rm.deselect()
 rm.runCommand("Show None")
 rm.runCommand("Save", "/home/svenja/Documents/data2/RoiSet.zip")
-fs = FileSaver(processed_Zniba) 
-fs.saveAsTiff("/home/svenja/Documents/data2/label.tiff")
-fs2 = FileSaver(Zniba) 
-fs2.saveAsTiff("/home/svenja/Documents/data2/wekaInput.tiff")
+#fs = FileSaver(processed_Zniba) 
+#fs.saveAsTiff("/home/svenja/Documents/data2/label.tiff")
+#fs2 = FileSaver(Zniba) 
+#fs2.saveAsTiff("/home/svenja/Documents/data2/wekaInput.tiff")
 
 wins = WindowManager.getIDList()
 for w in wins:
