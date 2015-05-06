@@ -54,12 +54,14 @@ def calculateThresholdValue(imp,percentage):
 		i = i + 1
 	return(int((256-i+2)*steps) + mi)
 
-def getInitialROIs(niba, raw_niba, pa):
-
-	if raw_niba:
-		Zniba = maxZprojection(niba, 7, niba.getNSlices()-5) # identify "good" slices instead of setting the start(10) and stop(15) slice?
+def getInitialROIs(niba, rm, pa):
+	# in order to work properly the image niba must be open when given to this function
+	if niba.getNSlices() != 1:
+		# todo: identify "good" slices instead of setting the start(7) and stop(n-5) slice?
+		Zniba = maxZprojection(niba, 7, niba.getNSlices()-5)
+		print "hello"
 	else: Zniba = niba.duplicate()
-	
+
 	IJ.run(Zniba, "Enhance Contrast","saturated Pixel=0.5")
 	IJ.run(Zniba, "Subtract Background...","radius = 100")
 	IJ.run(Zniba, "Bandpass Filter...","filter_large=150 ; filter_small=10")
@@ -74,27 +76,22 @@ def getInitialROIs(niba, raw_niba, pa):
 	IJ.run(Zniba, "Make Binary","")
 	IJ.run(Zniba, "Watershed","")
 
-	rm = RoiManager.getInstance() 
-	if rm != None: rm.reset()
-	else: rm = RoiManager()
-
 	if pa.analyze(Zniba):
 		print "All ok"
 	else:
 		print "There was a problem in analyzing"
 
-	rm = RoiManager.getInstance()
 	#Zniba.show()
 	rm.show()
 	#Zniba.hide()
 	#Zniba.close()
 	return([Zniba,rm,table])
 
-def countNuclei(rm,wu,raw_wu,pa,roi_table,niba):
+def countNuclei(rm, wu, pa, roi_table, niba):
 	
-	if raw_wu: Zwu = maxZprojection(wu,10,15)
+	if wu.getNSlices() != 1: Zwu = maxZprojection(wu,10,15)
 	else: 
-		Zwu = wu
+		Zwu = wu.duplicate()
 		Zwu.killRoi()# if any roi appears on image ignore it. if no roi appears this will have no influence
 	
 	IJ.run(Zwu, "Enhance Contrast","saturated Pixel=0.5")
@@ -557,9 +554,6 @@ def getImages():
 	for w in wins:
 		img = WindowManager.getImage(w)
 		name = img.getTitle()
-		print name
-		#name = re.split("[0-9\.-_]",name)
-		#print name
 		if not ("TIF" in name or "tif" in name):
 			print "ERROR: No .tif image selected" 
 		if "NIBA" in name:
@@ -573,11 +567,6 @@ def getImages():
 		elif "NG" in name: # or maybe other names ?
 			images.mrna = img
 
-	wins = WindowManager.getIDList()
-	if wins != None:
-		for w in wins:
-			WindowManager.getImage(w).close()
-
 	return images
 
 ############################################# main ####################################################
@@ -587,75 +576,34 @@ images = getImages()
 if not images.checkStatus():
 	print "ERROR: Didn't get all neccessary images.\nPlease Select the following Image files: NIBA, WU, CFP, BF, NG"
 
-print sgdjkf
-		
-
-
-op = OpenDialog("Choose Track Data...", "")
-path = op.getDirectory()
-imgName = op.getFileName()
-
-
-# make regular expression out of imgName
-whichIMG = re.split("w",imgName)
-whichIMG = whichIMG[0]
-
-cfp  = IJ.openImage(path + whichIMG + "w1CFP.TIF")  # spindle pole bodies
-
-if os.path.exists( path + whichIMG + "w2NIBA.TIF"):
-	niba = IJ.openImage(path + whichIMG + "w2NIBA.TIF") # TF Whi5
-	print "Use user input max projection of good_NIBA.tif"
-	raw_niba = False
-else: 
-	niba = IJ.openImage(path + whichIMG + "w3NIBA.TIF") # TF Whi5
-	raw_niba = True
-
-if os.path.exists( path + "MAX_" + whichIMG + "w6WU.tif"):
-	raw_wu = False
-	wu   = IJ.openImage(path + "MAX_" + whichIMG + "w6WU.tif")
-	print "Use user input max projection of WU.tif"
-else:
-	raw_wu = True
-	wu   = IJ.openImage(path + whichIMG + "w6WU.TIF")   # DAPI staining of nuclei
-
-ng   = IJ.openImage(path + whichIMG + "w5NG.TIF")   # mRNA spotting
-bf   = IJ.openImage(path + whichIMG + "w7BF.TIF")   # BrightField
-#composite = IJ.openImage(path + "Composite_" + re.split("_",imgName)[5] + ".tif")
-
+# prepate imagej instances (roi manager, particle analyzer, results table)
+rm = RoiManager.getInstance() 
+if rm != None: rm.reset()
+else: rm = RoiManager()
 table = ResultsTable()
 options = ParticleAnalyzer.ADD_TO_MANAGER | ParticleAnalyzer.EXCLUDE_EDGE_PARTICLES | ParticleAnalyzer.INCLUDE_HOLES
 pa = ParticleAnalyzer(options, ParticleAnalyzer.AREA, table, 0, 100000000)
 
+# get initial rois
+initROI = getInitialROIs(images.niba, rm, pa)
 
-
-
-
-
-# get rois
-initROI = getInitialROIs(niba,raw_niba,pa)
-rm = initROI[1]
-processed_Zniba = initROI[0]
-
+#get roi measurements such like area, koordinates, grey value, and whi5 intensity
 roi_table = My_table(["name","area","nuclei","n_id","spb","spb_id","X","Y","eval","whi5","width","height"])
+mean_grey_value = getRoiMeasurements(rm,roi_table,images.niba)
 
-mean_grey_value = getRoiMeasurements(rm,roi_table,niba)
-nuclei_table = countNuclei(rm,wu,raw_wu,pa,roi_table,niba) # update roi_table with nuclei counts
+# get nuclei info for each cell
+nuclei_table = countNuclei(rm, images.wu, pa, roi_table, images.niba) # update roi_table with nuclei counts
 initROI[0].show()
-spb_table    = countAndMeasureSPB(rm,cfp,pa,roi_table,mean_grey_value)
 
-
-	
-
+# get spindle pole body info for each cell
+spb_table    = countAndMeasureSPB(rm, images.cfp, pa, roi_table, mean_grey_value)
 
 
 # now evaluate each roi
-print roi_table
-print nuclei_table
-print sum(roi_table.getColumn('area'))
 av = sum(roi_table.getColumn('area'))/rm.getCount() # average area
 
 cells_without_nuclei = roi_table.getIndexByEntry("nuclei",0)[::-1] 
-# reversed list -> if a roi is deleted no shift in roi indices occurs
+# reversed list because if a roi is deleted no shift in roi indices occurs
 print "\n======================= Start Evaluation=======================\n"
 print "\n======================= Cells to be Evaluated with no nuclei: ",cells_without_nuclei
 for index in cells_without_nuclei:
@@ -763,13 +711,13 @@ print roi_table
 wins = WindowManager.getIDList()
 for w in wins:
 	WindowManager.getImage(w).hide()
-ng.show()
+images.mrna.show()
 rm.runCommand("Show All")
-cfp.show()
+images.cfp.show()
 rm.runCommand("Show All")
-bf.show()
+images.bf.show()
 rm.runCommand("Show All")
-Zniba = maxZprojection(niba, 7, niba.getNSlices()-5)
+Zniba = maxZprojection(images.niba, 7, images.niba.getNSlices()-5)
 Zniba.show()
 rm.runCommand("Show All")
 IJ.run("Tile")
