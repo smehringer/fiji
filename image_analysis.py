@@ -1,7 +1,7 @@
 import re
 import os.path
 from ij import ImagePlus, IJ, Prefs, WindowManager
-from ij.io import OpenDialog, FileSaver
+from ij.io import OpenDialog, FileSaver, Opener, ImportDialog
 from ij.plugin import ZProjector
 from ij.plugin.frame import RoiManager
 from ij.measure import ResultsTable
@@ -13,7 +13,9 @@ from ij.gui import GenericDialog,WaitForUserDialog
 
 import sys
 sys.path.insert(0,'/home/basar/Personal/Svenja/Scripts/')
+from class_ImageHolder import ImageHolder
 from table import My_table
+
 
 def maxZprojection(stackimp,start,stop):
     zp = ZProjector(stackimp)
@@ -52,19 +54,21 @@ def calculateThresholdValue(imp,percentage):
 		i = i + 1
 	return(int((256-i+2)*steps) + mi)
 
-def getInitialROIs(niba,pa):
-	
-	Zniba = maxZprojection(niba,10,15) # identify "good" slices instead of setting the start(10) and stop(15) slice?
+def getInitialROIs(niba, raw_niba, pa):
+
+	if raw_niba:
+		Zniba = maxZprojection(niba, 7, niba.getNSlices()-5) # identify "good" slices instead of setting the start(10) and stop(15) slice?
+	else: Zniba = niba.duplicate()
 	
 	IJ.run(Zniba, "Enhance Contrast","saturated Pixel=0.5")
-	IJ.run(Zniba, "Subtract Background...","radius = 100 ; sliding_parabold")
+	IJ.run(Zniba, "Subtract Background...","radius = 100")
 	IJ.run(Zniba, "Bandpass Filter...","filter_large=150 ; filter_small=10")
 	IJ.run(Zniba, "Smooth","")
 	IJ.run(Zniba, "Gaussian Blur...","radius=10")
-	
+
 	Zniba.show()
 	IJ.run(Zniba, "Threshold...","")
-	WaitForUserDialog("Segmentation Threshold", "Please alter threshold and press 'apply' before you proceed with OK").show()
+	WaitForUserDialog("Segmentation Threshold", "Please alter threshold before you proceed with OK").show()
 	
 	Zniba.show()
 	IJ.run(Zniba, "Make Binary","")
@@ -108,7 +112,7 @@ def countNuclei(rm,wu,raw_wu,pa,roi_table,niba):
 	pa.analyze(Zwu)
 	
 	nuclei_table = My_table(["area","whi5","X","Y","width","height"])
-	Zniba = maxZprojection(niba,10,15);#Zniba.show()
+	Zniba = maxZprojection(niba, 7, niba.getNSlices()-5);#Zniba.show()
 	rt = ResultsTable.getResultsTable()
 	rt.reset()
 	IJ.run("Set Measurements...","area ; centroid ;  integrated density ; bounding rectangle")
@@ -228,7 +232,7 @@ def getRoiMeasurements(rm,roi_table,niba):
 	n = len(rois)
 	indexes = rm.getSelectedIndexes() # save current selection
 	rm.deselect()
-	Zniba = maxZprojection(niba,10,15);Zniba.show()
+	Zniba = maxZprojection(niba, 7, niba.getNSlices()-5);Zniba.show()
 	rt = ResultsTable.getResultsTable()
 	rt.reset()
 	
@@ -504,187 +508,8 @@ def high_whi5(index,nucleus_id,roi_table):
 	whi5_diff = (roi_table.getEntry(index,"whi5")/(roi_table.getEntry(index,"area")))-(nuclei_table.getEntry(nucleus_id,"whi5")/(nuclei_table.getEntry(nucleus_id,"area")) )
 	if whi5_diff <= -10: return True
 	else: return False	
-			    	
-############################################# main ####################################################
 
-# get images
-op = OpenDialog("Choose Track Data...", "")
-path = op.getDirectory()
-imgName = op.getFileName()
-
-# make regular expression out of imgName
-whichIMG = re.split("w",imgName)
-whichIMG = whichIMG[0]
-
-cfp  = IJ.openImage(path + whichIMG + "w1CFP.TIF")  # spindle pole bodies
-niba = IJ.openImage(path + whichIMG + "w3NIBA.TIF") # TF Whi5
-ng   = IJ.openImage(path + whichIMG + "w5NG.TIF")   # mRNA spotting
-print os.path.exists( path + "MAX_" + whichIMG + "w6WU.tif"), path + "MAX_" + whichIMG + "w5WU.tif"
-if os.path.exists( path + "MAX_" + whichIMG + "w6WU.tif"):
-	raw_wu = False
-	wu   = IJ.openImage(path + "MAX_" + whichIMG + "w6WU.tif")
-	print "Use user input max projection of WU.tif"
-else:
-	raw_wu = True
-	wu   = IJ.openImage(path + whichIMG + "w6WU.TIF")   # DAPI staining of nuclei
-
-bf   = IJ.openImage(path + whichIMG + "w7BF.TIF")   # BrightField
-#composite = IJ.openImage(path + "Composite_" + re.split("_",imgName)[5] + ".tif")
-
-table = ResultsTable()
-options = ParticleAnalyzer.ADD_TO_MANAGER | ParticleAnalyzer.EXCLUDE_EDGE_PARTICLES | ParticleAnalyzer.INCLUDE_HOLES
-pa = ParticleAnalyzer(options, ParticleAnalyzer.AREA, table, 0, 100000000)
-
-
-
-
-
-
-# get rois
-initROI = getInitialROIs(niba,pa)
-rm = initROI[1]
-processed_Zniba = initROI[0]
-
-roi_table = My_table(["name","area","nuclei","n_id","spb","spb_id","X","Y","eval","whi5","width","height"])
-
-mean_grey_value = getRoiMeasurements(rm,roi_table,niba)
-nuclei_table = countNuclei(rm,wu,raw_wu,pa,roi_table,niba) # update roi_table with nuclei counts
-initROI[0].show()
-spb_table    = countAndMeasureSPB(rm,cfp,pa,roi_table,mean_grey_value)
-
-
-	
-
-
-
-# now evaluate each roi
-print roi_table
-print nuclei_table
-print sum(roi_table.getColumn('area'))
-av = sum(roi_table.getColumn('area'))/rm.getCount() # average area
-
-cells_without_nuclei = roi_table.getIndexByEntry("nuclei",0)[::-1] 
-# reversed list -> if a roi is deleted no shift in roi indices occurs
-print "\n========================================= Start Evaluation=============================================\n"
-print "\n=============================== Cells to be Evaluated with no nuclei: ",cells_without_nuclei,"==========================\n"
-for index in cells_without_nuclei:
-	roi = rm.getRoi(index)
-	roi_area = roi_table.getEntry(index,"area")
-	print "\n### Evaluate roi" ,rm.getName(index),"with no nuclei and an area of",roi_area,":"
-	# if roi has no nucleus and is smaller than half an average cell (do not depend merly on nuclei analysis)
-	# it is either noise or a bud
-	#if roi_area <= av/2:
-	roi_table.setEntry(index,"eval","yes")
-	print "~~~ Evaluated ROI",index,roi_table.getEntry(index,"name")
-	rois_to_evaluate = roi_table.getIndexByEntry("eval","no")
-				
-	bud,mothercell_index = evaluate_noiseOrBud(index,roi,av,roi_area,rois_to_evaluate,rm,roi_table)
-			
-
-cells_with_two_spbs = [c for c in roi_table.getIndexByEntry("spb",2)[::-1] if c in roi_table.getIndexByEntry("eval","no")]
-print "\n=============================== Cells to be Evaluated with twp spbs: ",cells_with_two_spbs,"==========================\n"
-for index in cells_with_two_spbs:
-	print "\n### Evaluate roi" ,rm.getName(index),"with two spindle poly bodies"
-	if roi_table.getEntry(index,"nuclei")==1:
-		evaluate_G2_vs_PM(index,roi_table,rm,nuclei_table,spb_table)
-		roi_table.setEntry(index,"eval","yes")
-	if roi_table.getEntry(index,"nuclei")>1:
-		roi_table.setEntry(index,"name","ANA")
-		roi_table.setEntry(index,"eval","yes")
-	print "~~~ Evaluated ROI",index,roi_table.getEntry(index,"name")
-
-
-cells_with_high_intensity_spb = [c for c in roi_table.getIndexByEntry("spb",1)[::-1] if roi_table.getEntry(c,"spb_id")[0] in spb_table.getIndexByEntry("high_intensity","yes") and c in roi_table.getIndexByEntry("eval","no")]
-print "\n=============================== Cells to be Evaluated with a spb of high intensity: ",cells_with_high_intensity_spb,"==========================\n"
-for index in cells_with_high_intensity_spb:
-	roi_table.setEntry(index,"name","Late S")
-	roi_table.setEntry(index,"eval","yes")
-
-
-# if a cell had any near neighbours they would have been seperated by watershed
-remaining_cells = [(c,evaluate_watershed(c,rm,roi_table)) for c in roi_table.getIndexByEntry("eval","no") ]
-cells_with_too_many_neighbours = [(c,w) for c,w in remaining_cells if len(w)>=2][::-1]
-print "\n=============================== Cells to be Evaluated with too many neighbours: ",cells_with_too_many_neighbours,"==========================\n"
-for c,w in cells_with_too_many_neighbours:
-	
-	rm.select(c)
-	IJ.run("Enlarge...","enlarge=1")
-	rm.runCommand("Update")
-	#choose those cell as a partner that has the most overlaying area
-	chosen_cell = sorted([ (overlay_area(c,c1,rm),c1) for c1 in w ])[-1:][0][1]
-	combineTwoRois(c,chosen_cell,roi_table,rm)
-	
-	#evaluate cell
-	min_index = min(c,chosen_cell)
-	nucleus_id = roi_table.getEntry(min_index,"n_id")[0]
-	if high_whi5(min_index,nucleus_id,roi_table):
-		roi_table.setEntry(min_index,"name","T/C")
-	else:
-		roi_table.setEntry(min_index,"name","ANA")
-	roi_table.setEntry(min_index,"eval","yes")
-
-#print roi_table
-#WaitForUserDialog("Cellsegmentation was finished", "Please look at your images and make any neccessary changes with the ROI Manager. \n You can delete ROIs or add new ones using Fiji. \n When you press OK a next window will let you change the cell cycle phases.").show()
-
-remaining_cells = [(c,evaluate_watershed(c,rm,roi_table)) for c in roi_table.getIndexByEntry("eval","no") ]
-cells_with_one_neighbour = [(c,w) for c,w in remaining_cells if len(w)==1][::-1]
-print "\n=============================== Cells to be Evaluated with one neighbour: ",cells_with_one_neighbour,"==================\n"
-
-for i in range(len(cells_with_one_neighbour)/2) :
-	cells_with_one_neighbour.remove((cells_with_one_neighbour[i][1][0],[cells_with_one_neighbour[i][0]]))
-print "\n=============================== Cells to be Evaluated with one neighbour: ",cells_with_one_neighbour,"==================\n"
-# remove doubles (if cell A and B are neighbours they should only be combined once!)
-for i in range(len(cells_with_one_neighbour)):
-	rm.select(cells_with_one_neighbour[i][0])
-	IJ.run("Enlarge...","enlarge=1")
-	rm.runCommand("Update")
-	combineTwoRois(cells_with_one_neighbour[i][0],cells_with_one_neighbour[i][1][0],roi_table,rm)
-	
-
-
-remaining_cells = [ c for c in roi_table.getIndexByEntry("eval","no") ]
-print "\n=============================== Cells to be Evaluated (remaining): ",remaining_cells,"==========================\n"
-for index in remaining_cells:
-	nucleus_id = roi_table.getEntry(index,"n_id")[0]
-	if roi_table.getEntry(index,"nuclei") == 1:
-		if high_whi5(index,nucleus_id,roi_table):
-			roi_table.setEntry(index,"name","G1")
-		else:
-			roi_table.setEntry(index,"name","Early S")
-	else:	
-		if high_whi5(index,nucleus_id,roi_table):
-			roi_table.setEntry(index,"name","T/C")
-		else:
-			roi_table.setEntry(index,"name","ANA")
-	roi_table.setEntry(index,"eval","yes")
-
-print "\n========================================= Done Evaluation=============================================\n"
-
-def renameRois(rm, roi_table):
-	rm.deselect()
-	for index in range(rm.getCount()):
-		rm.select(index)
-		rm.runCommand("Rename",(str(index+1)+ " - "+ roi_table.getEntry(index, "name")))
-		rm.deselect()
-
-renameRois(rm, roi_table)
-print roi_table
-wins = WindowManager.getIDList()
-for w in wins:
-	WindowManager.getImage(w).hide()
-ng.show()
-rm.runCommand("Show All")
-cfp.show()
-rm.runCommand("Show All")
-bf.show()
-rm.runCommand("Show All")
-Zniba = maxZprojection(niba,10,15)
-Zniba.show()
-rm.runCommand("Show All")
-IJ.run("Tile")
-print "### Done."
-
-def userDialog():
+def userDialog(rm):
 	WaitForUserDialog("Cellsegmentation was finished", "Please look at your images and make any neccessary changes with the ROI Manager. \n You can delete ROIs or add new ones using Fiji. \n When you press OK a next window will let you change the cell cycle phases.").show()
 	
 	gd = GenericDialog("Cell Cycle")  
@@ -717,9 +542,242 @@ def userDialog():
 				return False
 		return True
 
-u = userDialog()
-while(u == False): u = userDialog()
+def getImages():
+	# close all active windows that might interfere with plugin
+	wins = WindowManager.getIDList()
+	if wins != None:
+		for w in wins:
+			WindowManager.getImage(w).close()
+	
+	# get images
+	o = Opener()
+	o.openMultiple()
+	images = ImageHolder()
+	wins = WindowManager.getIDList()
+	for w in wins:
+		img = WindowManager.getImage(w)
+		name = img.getTitle()
+		print name
+		#name = re.split("[0-9\.-_]",name)
+		#print name
+		if not ("TIF" in name or "tif" in name):
+			print "ERROR: No .tif image selected" 
+		if "NIBA" in name:
+			images.niba = img
+		elif "WU" in name:
+			images.wu = img
+		elif "CFP" in name:
+			images.cfp = img
+		elif "BF" in name:
+			images.bf = img
+		elif "NG" in name: # or maybe other names ?
+			images.mrna = img
 
+	wins = WindowManager.getIDList()
+	if wins != None:
+		for w in wins:
+			WindowManager.getImage(w).close()
+
+	return images
+
+############################################# main ####################################################
+
+# get images through user Dialog
+images = getImages()
+if not images.checkStatus():
+	print "ERROR: Didn't get all neccessary images.\nPlease Select the following Image files: NIBA, WU, CFP, BF, NG"
+
+print sgdjkf
+		
+
+
+op = OpenDialog("Choose Track Data...", "")
+path = op.getDirectory()
+imgName = op.getFileName()
+
+
+# make regular expression out of imgName
+whichIMG = re.split("w",imgName)
+whichIMG = whichIMG[0]
+
+cfp  = IJ.openImage(path + whichIMG + "w1CFP.TIF")  # spindle pole bodies
+
+if os.path.exists( path + whichIMG + "w2NIBA.TIF"):
+	niba = IJ.openImage(path + whichIMG + "w2NIBA.TIF") # TF Whi5
+	print "Use user input max projection of good_NIBA.tif"
+	raw_niba = False
+else: 
+	niba = IJ.openImage(path + whichIMG + "w3NIBA.TIF") # TF Whi5
+	raw_niba = True
+
+if os.path.exists( path + "MAX_" + whichIMG + "w6WU.tif"):
+	raw_wu = False
+	wu   = IJ.openImage(path + "MAX_" + whichIMG + "w6WU.tif")
+	print "Use user input max projection of WU.tif"
+else:
+	raw_wu = True
+	wu   = IJ.openImage(path + whichIMG + "w6WU.TIF")   # DAPI staining of nuclei
+
+ng   = IJ.openImage(path + whichIMG + "w5NG.TIF")   # mRNA spotting
+bf   = IJ.openImage(path + whichIMG + "w7BF.TIF")   # BrightField
+#composite = IJ.openImage(path + "Composite_" + re.split("_",imgName)[5] + ".tif")
+
+table = ResultsTable()
+options = ParticleAnalyzer.ADD_TO_MANAGER | ParticleAnalyzer.EXCLUDE_EDGE_PARTICLES | ParticleAnalyzer.INCLUDE_HOLES
+pa = ParticleAnalyzer(options, ParticleAnalyzer.AREA, table, 0, 100000000)
+
+
+
+
+
+
+# get rois
+initROI = getInitialROIs(niba,raw_niba,pa)
+rm = initROI[1]
+processed_Zniba = initROI[0]
+
+roi_table = My_table(["name","area","nuclei","n_id","spb","spb_id","X","Y","eval","whi5","width","height"])
+
+mean_grey_value = getRoiMeasurements(rm,roi_table,niba)
+nuclei_table = countNuclei(rm,wu,raw_wu,pa,roi_table,niba) # update roi_table with nuclei counts
+initROI[0].show()
+spb_table    = countAndMeasureSPB(rm,cfp,pa,roi_table,mean_grey_value)
+
+
+	
+
+
+
+# now evaluate each roi
+print roi_table
+print nuclei_table
+print sum(roi_table.getColumn('area'))
+av = sum(roi_table.getColumn('area'))/rm.getCount() # average area
+
+cells_without_nuclei = roi_table.getIndexByEntry("nuclei",0)[::-1] 
+# reversed list -> if a roi is deleted no shift in roi indices occurs
+print "\n======================= Start Evaluation=======================\n"
+print "\n======================= Cells to be Evaluated with no nuclei: ",cells_without_nuclei
+for index in cells_without_nuclei:
+	roi = rm.getRoi(index)
+	roi_area = roi_table.getEntry(index,"area")
+	print "\n### Evaluate roi" ,rm.getName(index),"with no nuclei and an area of",roi_area,":"
+	# if roi has no nucleus and is smaller than half an average cell (do not depend merly on nuclei analysis)
+	# it is either noise or a bud
+	#if roi_area <= av/2:
+	roi_table.setEntry(index,"eval","yes")
+	print "~~~ Evaluated ROI",index,roi_table.getEntry(index,"name")
+	rois_to_evaluate = roi_table.getIndexByEntry("eval","no")
+				
+	bud,mothercell_index = evaluate_noiseOrBud(index,roi,av,roi_area,rois_to_evaluate,rm,roi_table)
+			
+
+cells_with_two_spbs = [c for c in roi_table.getIndexByEntry("spb",2)[::-1] if c in roi_table.getIndexByEntry("eval","no")]
+print "\n======================= Cells to be Evaluated with twp spbs: ",cells_with_two_spbs
+for index in cells_with_two_spbs:
+	print "\n### Evaluate roi" ,rm.getName(index),"with two spindle poly bodies"
+	if roi_table.getEntry(index,"nuclei")==1:
+		evaluate_G2_vs_PM(index,roi_table,rm,nuclei_table,spb_table)
+		roi_table.setEntry(index,"eval","yes")
+	if roi_table.getEntry(index,"nuclei")>1:
+		roi_table.setEntry(index,"name","ANA")
+		roi_table.setEntry(index,"eval","yes")
+	print "~~~ Evaluated ROI",index,roi_table.getEntry(index,"name")
+
+
+cells_with_high_intensity_spb = [c for c in roi_table.getIndexByEntry("spb",1)[::-1] if roi_table.getEntry(c,"spb_id")[0] in spb_table.getIndexByEntry("high_intensity","yes") and c in roi_table.getIndexByEntry("eval","no")]
+print "\n======================= Cells to be Evaluated with a spb of high intensity: ",cells_with_high_intensity_spb
+for index in cells_with_high_intensity_spb:
+	roi_table.setEntry(index,"name","Late S")
+	roi_table.setEntry(index,"eval","yes")
+
+
+# if a cell had any near neighbours they would have been seperated by watershed
+remaining_cells = [(c,evaluate_watershed(c,rm,roi_table)) for c in roi_table.getIndexByEntry("eval","no") ]
+cells_with_too_many_neighbours = [(c,w) for c,w in remaining_cells if len(w)>=2][::-1]
+print "\n======================= Cells to be Evaluated with too many neighbours: ",cells_with_too_many_neighbours
+for c,w in cells_with_too_many_neighbours:
+	
+	rm.select(c)
+	IJ.run("Enlarge...","enlarge=1")
+	rm.runCommand("Update")
+	#choose those cell as a partner that has the most overlaying area
+	chosen_cell = sorted([ (overlay_area(c,c1,rm),c1) for c1 in w ])[-1:][0][1]
+	combineTwoRois(c,chosen_cell,roi_table,rm)
+	
+	#evaluate cell
+	min_index = min(c,chosen_cell)
+	nucleus_id = roi_table.getEntry(min_index,"n_id")[0]
+	if high_whi5(min_index,nucleus_id,roi_table):
+		roi_table.setEntry(min_index,"name","T/C")
+	else:
+		roi_table.setEntry(min_index,"name","ANA")
+	roi_table.setEntry(min_index,"eval","yes")
+
+#print roi_table
+#WaitForUserDialog("Cellsegmentation was finished", "Please look at your images and make any neccessary changes with the ROI Manager. \n You can delete ROIs or add new ones using Fiji. \n When you press OK a next window will let you change the cell cycle phases.").show()
+
+remaining_cells = [(c,evaluate_watershed(c,rm,roi_table)) for c in roi_table.getIndexByEntry("eval","no") ]
+cells_with_one_neighbour = [(c,w) for c,w in remaining_cells if len(w)==1][::-1]
+print "\n======================= Cells to be Evaluated with one neighbour: ",cells_with_one_neighbour
+
+for i in range(len(cells_with_one_neighbour)/2) :
+	cells_with_one_neighbour.remove((cells_with_one_neighbour[i][1][0],[cells_with_one_neighbour[i][0]]))
+print "\n======================= Cells to be Evaluated with one neighbour: ",cells_with_one_neighbour
+# remove doubles (if cell A and B are neighbours they should only be combined once!)
+for i in range(len(cells_with_one_neighbour)):
+	rm.select(cells_with_one_neighbour[i][0])
+	IJ.run("Enlarge...","enlarge=1")
+	rm.runCommand("Update")
+	combineTwoRois(cells_with_one_neighbour[i][0],cells_with_one_neighbour[i][1][0],roi_table,rm)
+	
+
+
+remaining_cells = [ c for c in roi_table.getIndexByEntry("eval","no") ]
+print "\n======================= Cells to be Evaluated (remaining): ",remaining_cells
+for index in remaining_cells:
+	nucleus_id = roi_table.getEntry(index,"n_id")[0]
+	if roi_table.getEntry(index,"nuclei") == 1:
+		if high_whi5(index,nucleus_id,roi_table):
+			roi_table.setEntry(index,"name","G1")
+		else:
+			roi_table.setEntry(index,"name","Early S")
+	else:	
+		if high_whi5(index,nucleus_id,roi_table):
+			roi_table.setEntry(index,"name","T/C")
+		else:
+			roi_table.setEntry(index,"name","ANA")
+	roi_table.setEntry(index,"eval","yes")
+
+print "\n======================= Done Evaluation=======================\n"
+
+def renameRois(rm, roi_table):
+	rm.deselect()
+	for index in range(rm.getCount()):
+		rm.select(index)
+		rm.runCommand("Rename",(str(index+1)+ " - "+ roi_table.getEntry(index, "name")))
+		rm.deselect()
+
+renameRois(rm, roi_table)
+print roi_table
+wins = WindowManager.getIDList()
+for w in wins:
+	WindowManager.getImage(w).hide()
+ng.show()
+rm.runCommand("Show All")
+cfp.show()
+rm.runCommand("Show All")
+bf.show()
+rm.runCommand("Show All")
+Zniba = maxZprojection(niba, 7, niba.getNSlices()-5)
+Zniba.show()
+rm.runCommand("Show All")
+IJ.run("Tile")
+print "### Done."
+
+
+u = userDialog(rm)
+while(u == False): u = userDialog(rm)
 
 rm = RoiManager.getInstance()
 print rm.getCount()
