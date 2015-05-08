@@ -121,7 +121,6 @@ def countNuclei(rm, wu, pa, roi_table, niba):
 		i = i - old_roi_count # result table starts with 0
 		nuclei_table.addRow([rt.getValue('Area',i),rt.getValue('IntDen',i),
 						  rt.getValue('X',i),rt.getValue('Y',i),rt.getValue('Width',i),rt.getValue('Height',i)])
-	av = sum(nuclei_table.getColumn("area"))/nuclei_table.count
 			
 	for i in range(nuclei_table.count):
 		x = int(nuclei_table.getEntry(i,'X'))
@@ -133,7 +132,7 @@ def countNuclei(rm, wu, pa, roi_table, niba):
 
 	rt.reset()		
 	rm.setSelectedIndexes(range(old_roi_count,rm.getCount()))
-	rm.runCommand("delete") # delete spindle pole body rois
+	rm.runCommand("delete") # delete nuclei rois
 	#Zniba.hide()
 	return(nuclei_table)
 
@@ -338,13 +337,15 @@ def combineTwoRois(index,index2,roi_table,rm):
 		roi_table.delRow(index)
 		
 	
-def evaluate_noiseOrBud(index,roi,av,roi_area,rois_to_evaluate,rm,roi_table):
+def evaluate_noiseOrBud(index, rm, roi_table):
 	print "Evaluate: Noise or Bud" 
 	rm.deselect() 
 	rm.select(index)
 	
 	# enlarge particle to half the size of an average cell 
 	# enlarge by 1 pixel enlarges area by about 100 (if cell is round) -> divide by 100
+	av = sum(roi_table.getColumn('area'))/rm.getCount() # average area
+	roi_area = roi_table.getEntry(index,"area")
 	pix = int((av/2 - roi_area)/100)
 	if pix <= 1: pix = 2
 	s_pix	= "enlarge=" + str(pix)
@@ -355,6 +356,7 @@ def evaluate_noiseOrBud(index,roi,av,roi_area,rois_to_evaluate,rm,roi_table):
 	roi = rm.getRoi(index) # get updated enlarged roi
 	
 	# check if rois are even near the investigated roi
+	rois_to_evaluate = roi_table.getIndexByEntry("eval","no")
 	rois_in_range = []
 	for check_roi in rois_to_evaluate:
 		x1 =  roi_table.getEntry(index,'X')
@@ -403,7 +405,7 @@ def evaluate_noiseOrBud(index,roi,av,roi_area,rois_to_evaluate,rm,roi_table):
 		print "~~~ Evaluated ROI",touching_rois[0],roi_table.getEntry(touching_rois[0],"name")
 		
 		combineTwoRois(index,touching_rois[0],roi_table,rm)
-		return(True,touching_rois[0])
+	return True
 
 def evaluate_watershed(index,rm,roi_table):
 	# rois that are only 2 pixels apart can only (with a very high probability) 
@@ -569,6 +571,94 @@ def getImages():
 
 	return images
 
+def evaluate_no_nuclei(roi_table, rm):
+	# reversed list because then if a roi is deleted, no shift in roi indices occurs
+	cells_without_nuclei = roi_table.getIndexByEntry("nuclei", 0)[::-1]
+	for index in cells_without_nuclei:
+		print "~~~ Evaluate roi", index, roi_table.getEntry(index, "name")
+		roi_table.setEntry(index, "eval", "yes")
+		evaluate_noiseOrBud(index, rm, roi_table)
+	return True
+		
+def evaluate_two_spbs(roi_table, rm, nuclei_table, spb_table):
+	rois_to_evaluate = roi_table.getIndexByEntry("eval", "no")
+	cells_with_two_spbs = [c for c in roi_table.getIndexByEntry("spb", 2)[::-1] if c in rois_to_evaluate]
+	for index in cells_with_two_spbs:
+		print "~~~ Evaluate roi", index, roi_table.getEntry(index, "name")
+		if roi_table.getEntry(index, "nuclei")==1:
+			evaluate_G2_vs_PM(index, roi_table, rm, nuclei_table, spb_table)
+			roi_table.setEntry(index, "eval", "yes")
+		if roi_table.getEntry(index, "nuclei")>1:
+			roi_table.setEntry(index, "name", "ANA")
+			roi_table.setEntry(index, "eval", "yes")
+	return True
+
+def evaluate_highIntensity_spb(roi_table, spb_table):
+	rois_to_evaluate = roi_table.getIndexByEntry("eval", "no")
+	cells_with_high_intensity_spb = [c for c in roi_table.getIndexByEntry("spb",1)[::-1] if roi_table.getEntry(c,"spb_id")[0] in spb_table.getIndexByEntry("high_intensity","yes") and c in roi_table.getIndexByEntry("eval","no")]
+	for index in cells_with_high_intensity_spb:
+		print "~~~ Evaluate roi", index, roi_table.getEntry(index, "name")
+		roi_table.setEntry(index,"name","Late S")
+		roi_table.setEntry(index,"eval","yes")
+	return True
+
+
+def evaluate_many_neighbours(roi_table, rm):
+	# if a cell has very near neighbours those cells have probably been seperated by watershed
+	remaining_cells = [(c,evaluate_watershed(c,rm,roi_table)) for c in roi_table.getIndexByEntry("eval","no") ]
+	cells_with_too_many_neighbours = [(c,w) for c,w in remaining_cells if len(w)>=2][::-1]
+	for c,w in cells_with_too_many_neighbours:
+		print "~~~ Evaluate roi", c, roi_table.getEntry(c, "name")
+		rm.select(c)
+		IJ.run("Enlarge...","enlarge=1")
+		rm.runCommand("Update")
+		#choose those cell as a partner that has the most overlaying area
+		chosen_cell = sorted([ (overlay_area(c,c1,rm),c1) for c1 in w ])[-1:][0][1]
+		combineTwoRois(c,chosen_cell,roi_table,rm)
+		
+		#evaluate cell
+		min_index = min(c,chosen_cell)
+		nucleus_id = roi_table.getEntry(min_index,"n_id")[0]
+		if high_whi5(min_index,nucleus_id,roi_table):
+			roi_table.setEntry(min_index,"name","T/C")
+		else:
+			roi_table.setEntry(min_index,"name","ANA")
+		roi_table.setEntry(min_index,"eval","yes")
+
+def evaluate_one_neighbour(roi_table, rm):
+	remaining_cells = [(c, evaluate_watershed(c,rm,roi_table)) for c in roi_table.getIndexByEntry("eval", "no") ]
+	cells_with_one_neighbour = [(c, w) for c,w in remaining_cells if len(w)==1][::-1]
+	# remove duplicates ( if (a,b) are neighbouring cells, than also (b,a) -> remove one tuple )
+	for i in range(len(cells_with_one_neighbour)/2) :
+		cells_with_one_neighbour.remove((cells_with_one_neighbour[i][1][0], [cells_with_one_neighbour[i][0]]))
+	# if by now the there are to neighbouring cells that have not been evaluated otherwise
+	# the possibily is high that those two belong together -> combine them without further information
+	for i in range(len(cells_with_one_neighbour)):
+		print "~~~ Evaluate roi", cells_with_one_neighbour[i][0], roi_table.getEntry(cells_with_one_neighbour[i][0], "name")
+		rm.select(cells_with_one_neighbour[i][0])
+		IJ.run("Enlarge...", "enlarge=1")
+		rm.runCommand("Update")
+		combineTwoRois(cells_with_one_neighbour[i][0], cells_with_one_neighbour[i][1][0], roi_table, rm)
+
+def evaluate_remaining(roi_table, rm):
+	rois_to_evaluate = roi_table.getIndexByEntry("eval", "no")
+	for index in rois_to_evaluate:
+		print "~~~ Evaluate roi", index, roi_table.getEntry(index, "name")
+		nucleus_id = roi_table.getEntry(index, "n_id")[0]
+		if roi_table.getEntry(index, "nuclei") == 1:
+			if high_whi5(index, nucleus_id, roi_table):
+				roi_table.setEntry(index, "name", "G1")
+			else:
+				roi_table.setEntry(index, "name", "Early S")
+		else:	
+			if high_whi5(index, nucleus_id, roi_table):
+				roi_table.setEntry(index, "name", "T/C")
+			else:
+				roi_table.setEntry(index, "name", "ANA")
+		roi_table.setEntry(index, "eval", "yes")
+
+
+
 ############################################# main ####################################################
 
 # get images through user Dialog
@@ -576,7 +666,7 @@ images = getImages()
 if not images.checkStatus():
 	print "ERROR: Didn't get all neccessary images.\nPlease Select the following Image files: NIBA, WU, CFP, BF, NG"
 
-# prepate imagej instances (roi manager, particle analyzer, results table)
+# prepare imageJ instances (roi manager, particle analyzer, results table)
 rm = RoiManager.getInstance() 
 if rm != None: rm.reset()
 else: rm = RoiManager()
@@ -585,7 +675,7 @@ options = ParticleAnalyzer.ADD_TO_MANAGER | ParticleAnalyzer.EXCLUDE_EDGE_PARTIC
 pa = ParticleAnalyzer(options, ParticleAnalyzer.AREA, table, 0, 100000000)
 
 # get initial rois
-initROI = getInitialROIs(images.niba, rm, pa)
+initROI = getInitialROIs(images.niba, rm, pa) 
 
 #get roi measurements such like area, koordinates, grey value, and whi5 intensity
 roi_table = My_table(["name","area","nuclei","n_id","spb","spb_id","X","Y","eval","whi5","width","height"])
@@ -600,102 +690,25 @@ spb_table    = countAndMeasureSPB(rm, images.cfp, pa, roi_table, mean_grey_value
 
 
 # now evaluate each roi
-av = sum(roi_table.getColumn('area'))/rm.getCount() # average area
+print "\n======================= Start Evaluation =======================\n"
 
-cells_without_nuclei = roi_table.getIndexByEntry("nuclei",0)[::-1] 
-# reversed list because if a roi is deleted no shift in roi indices occurs
-print "\n======================= Start Evaluation=======================\n"
-print "\n======================= Cells to be Evaluated with no nuclei: ",cells_without_nuclei
-for index in cells_without_nuclei:
-	roi = rm.getRoi(index)
-	roi_area = roi_table.getEntry(index,"area")
-	print "\n### Evaluate roi" ,rm.getName(index),"with no nuclei and an area of",roi_area,":"
-	# if roi has no nucleus and is smaller than half an average cell (do not depend merly on nuclei analysis)
-	# it is either noise or a bud
-	#if roi_area <= av/2:
-	roi_table.setEntry(index,"eval","yes")
-	print "~~~ Evaluated ROI",index,roi_table.getEntry(index,"name")
-	rois_to_evaluate = roi_table.getIndexByEntry("eval","no")
-				
-	bud,mothercell_index = evaluate_noiseOrBud(index,roi,av,roi_area,rois_to_evaluate,rm,roi_table)
-			
+print "\n======================= Cells without nuclei are evaluated. "
+evaluate_no_nuclei(roi_table, rm)
 
-cells_with_two_spbs = [c for c in roi_table.getIndexByEntry("spb",2)[::-1] if c in roi_table.getIndexByEntry("eval","no")]
-print "\n======================= Cells to be Evaluated with twp spbs: ",cells_with_two_spbs
-for index in cells_with_two_spbs:
-	print "\n### Evaluate roi" ,rm.getName(index),"with two spindle poly bodies"
-	if roi_table.getEntry(index,"nuclei")==1:
-		evaluate_G2_vs_PM(index,roi_table,rm,nuclei_table,spb_table)
-		roi_table.setEntry(index,"eval","yes")
-	if roi_table.getEntry(index,"nuclei")>1:
-		roi_table.setEntry(index,"name","ANA")
-		roi_table.setEntry(index,"eval","yes")
-	print "~~~ Evaluated ROI",index,roi_table.getEntry(index,"name")
+print "\n======================= Cells with two spindle pole bodies are evaluated. "
+evaluate_two_spbs(roi_table, rm, nuclei_table, spb_table)
 
+print "\n======================= Cells with a spb of high intensity are evaluated. "
+evaluate_highIntensity_spb(roi_table, spb_table)
 
-cells_with_high_intensity_spb = [c for c in roi_table.getIndexByEntry("spb",1)[::-1] if roi_table.getEntry(c,"spb_id")[0] in spb_table.getIndexByEntry("high_intensity","yes") and c in roi_table.getIndexByEntry("eval","no")]
-print "\n======================= Cells to be Evaluated with a spb of high intensity: ",cells_with_high_intensity_spb
-for index in cells_with_high_intensity_spb:
-	roi_table.setEntry(index,"name","Late S")
-	roi_table.setEntry(index,"eval","yes")
+print "\n======================= Cells with too many neighbours are evaluated. "
+evaluate_many_neighbours(roi_table, rm)
 
+print "\n======================= Cells with one neighbour are evaluated. "
+evaluate_one_neighbour(roi_table, rm)
 
-# if a cell had any near neighbours they would have been seperated by watershed
-remaining_cells = [(c,evaluate_watershed(c,rm,roi_table)) for c in roi_table.getIndexByEntry("eval","no") ]
-cells_with_too_many_neighbours = [(c,w) for c,w in remaining_cells if len(w)>=2][::-1]
-print "\n======================= Cells to be Evaluated with too many neighbours: ",cells_with_too_many_neighbours
-for c,w in cells_with_too_many_neighbours:
-	
-	rm.select(c)
-	IJ.run("Enlarge...","enlarge=1")
-	rm.runCommand("Update")
-	#choose those cell as a partner that has the most overlaying area
-	chosen_cell = sorted([ (overlay_area(c,c1,rm),c1) for c1 in w ])[-1:][0][1]
-	combineTwoRois(c,chosen_cell,roi_table,rm)
-	
-	#evaluate cell
-	min_index = min(c,chosen_cell)
-	nucleus_id = roi_table.getEntry(min_index,"n_id")[0]
-	if high_whi5(min_index,nucleus_id,roi_table):
-		roi_table.setEntry(min_index,"name","T/C")
-	else:
-		roi_table.setEntry(min_index,"name","ANA")
-	roi_table.setEntry(min_index,"eval","yes")
-
-#print roi_table
-#WaitForUserDialog("Cellsegmentation was finished", "Please look at your images and make any neccessary changes with the ROI Manager. \n You can delete ROIs or add new ones using Fiji. \n When you press OK a next window will let you change the cell cycle phases.").show()
-
-remaining_cells = [(c,evaluate_watershed(c,rm,roi_table)) for c in roi_table.getIndexByEntry("eval","no") ]
-cells_with_one_neighbour = [(c,w) for c,w in remaining_cells if len(w)==1][::-1]
-print "\n======================= Cells to be Evaluated with one neighbour: ",cells_with_one_neighbour
-
-for i in range(len(cells_with_one_neighbour)/2) :
-	cells_with_one_neighbour.remove((cells_with_one_neighbour[i][1][0],[cells_with_one_neighbour[i][0]]))
-print "\n======================= Cells to be Evaluated with one neighbour: ",cells_with_one_neighbour
-# remove doubles (if cell A and B are neighbours they should only be combined once!)
-for i in range(len(cells_with_one_neighbour)):
-	rm.select(cells_with_one_neighbour[i][0])
-	IJ.run("Enlarge...","enlarge=1")
-	rm.runCommand("Update")
-	combineTwoRois(cells_with_one_neighbour[i][0],cells_with_one_neighbour[i][1][0],roi_table,rm)
-	
-
-
-remaining_cells = [ c for c in roi_table.getIndexByEntry("eval","no") ]
-print "\n======================= Cells to be Evaluated (remaining): ",remaining_cells
-for index in remaining_cells:
-	nucleus_id = roi_table.getEntry(index,"n_id")[0]
-	if roi_table.getEntry(index,"nuclei") == 1:
-		if high_whi5(index,nucleus_id,roi_table):
-			roi_table.setEntry(index,"name","G1")
-		else:
-			roi_table.setEntry(index,"name","Early S")
-	else:	
-		if high_whi5(index,nucleus_id,roi_table):
-			roi_table.setEntry(index,"name","T/C")
-		else:
-			roi_table.setEntry(index,"name","ANA")
-	roi_table.setEntry(index,"eval","yes")
+print "\n======================= Cells than remain are evaluated. "
+evaluate_remaining(roi_table, rm)
 
 print "\n======================= Done Evaluation=======================\n"
 
