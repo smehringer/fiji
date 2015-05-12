@@ -1,7 +1,8 @@
 import re
 import os.path
+import pickle
 from ij import ImagePlus, IJ, Prefs, WindowManager
-from ij.io import OpenDialog, FileSaver, Opener, ImportDialog
+from ij.io import OpenDialog, FileSaver, Opener, ImportDialog, DirectoryChooser
 from ij.plugin import ZProjector
 from ij.plugin.frame import RoiManager
 from ij.measure import ResultsTable
@@ -13,6 +14,7 @@ from ij.gui import GenericDialog,WaitForUserDialog
 
 import sys
 sys.path.insert(0,'/home/basar/Personal/Svenja/Scripts/')
+sys.path.insert(0,'/home/basar/Personal/Dominique_Sydow/image_analysis/20140805_IDLmerger/')
 from class_ImageHolder import ImageHolder
 from table import My_table
 
@@ -36,7 +38,7 @@ def calculateThresholdValue(imp,percentage):
 	## implements tha manually definable percentage of pixel 
 	## when thresholding (using Image>>Adjust>>Threshold)
 	##
-	
+
 	# calculates a histogram of pixel values
 	ma = imp.getProcessor().getMax()
 	mi = imp.getProcessor().getMin()
@@ -74,6 +76,7 @@ def getInitialROIs(niba, rm, pa):
 	
 	Zniba.show()
 	IJ.run(Zniba, "Make Binary","")
+	IJ.run(Zniba, "Dilate","") # slightly enlarge cells
 	IJ.run(Zniba, "Watershed","")
 
 	if pa.analyze(Zniba):
@@ -85,7 +88,7 @@ def getInitialROIs(niba, rm, pa):
 	rm.show()
 	#Zniba.hide()
 	#Zniba.close()
-	return([Zniba,rm,table])
+	return(Zniba)
 
 def countNuclei(rm, wu, pa, roi_table, niba):
 	
@@ -657,6 +660,12 @@ def evaluate_remaining(roi_table, rm):
 				roi_table.setEntry(index, "name", "ANA")
 		roi_table.setEntry(index, "eval", "yes")
 
+def renameRois(rm, roi_table):
+	rm.deselect()
+	for index in range(rm.getCount()):
+		rm.select(index)
+		rm.runCommand("Rename",(str(index+1)+ " - "+ roi_table.getEntry(index, "name")))
+		rm.deselect()
 
 
 ############################################# main ####################################################
@@ -675,7 +684,7 @@ options = ParticleAnalyzer.ADD_TO_MANAGER | ParticleAnalyzer.EXCLUDE_EDGE_PARTIC
 pa = ParticleAnalyzer(options, ParticleAnalyzer.AREA, table, 0, 100000000)
 
 # get initial rois
-initROI = getInitialROIs(images.niba, rm, pa) 
+mask = getInitialROIs(images.niba, rm, pa) 
 
 #get roi measurements such like area, koordinates, grey value, and whi5 intensity
 roi_table = My_table(["name","area","nuclei","n_id","spb","spb_id","X","Y","eval","whi5","width","height"])
@@ -683,7 +692,6 @@ mean_grey_value = getRoiMeasurements(rm,roi_table,images.niba)
 
 # get nuclei info for each cell
 nuclei_table = countNuclei(rm, images.wu, pa, roi_table, images.niba) # update roi_table with nuclei counts
-initROI[0].show()
 
 # get spindle pole body info for each cell
 spb_table    = countAndMeasureSPB(rm, images.cfp, pa, roi_table, mean_grey_value)
@@ -711,16 +719,8 @@ print "\n======================= Cells than remain are evaluated. "
 evaluate_remaining(roi_table, rm)
 
 print "\n======================= Done Evaluation=======================\n"
-
-def renameRois(rm, roi_table):
-	rm.deselect()
-	for index in range(rm.getCount()):
-		rm.select(index)
-		rm.runCommand("Rename",(str(index+1)+ " - "+ roi_table.getEntry(index, "name")))
-		rm.deselect()
-
 renameRois(rm, roi_table)
-print roi_table
+
 wins = WindowManager.getIDList()
 for w in wins:
 	WindowManager.getImage(w).hide()
@@ -741,16 +741,57 @@ u = userDialog(rm)
 while(u == False): u = userDialog(rm)
 
 rm = RoiManager.getInstance()
-print rm.getCount()
-rm.select(Zniba,0)
-rm.deselect()
 rm.runCommand("Show None")
-rm.runCommand("Save", "/home/svenja/Documents/data2/RoiSet.zip")
-#fs = FileSaver(processed_Zniba) 
-#fs.saveAsTiff("/home/svenja/Documents/data2/label.tiff")
-#fs2 = FileSaver(Zniba) 
-#fs2.saveAsTiff("/home/svenja/Documents/data2/wekaInput.tiff")
-
 wins = WindowManager.getIDList()
 for w in wins:
 	WindowManager.getImage(w).close()
+
+# create RGB cell mask for further process
+ip = mask.getProcessor()
+ip.setValue(255)
+ip.fill() # fills the whole picture black
+# then fill each roi with a different shade of grey
+rois = rm.getRoisAsArray()
+for index in range(len(rois)):
+	colour = index*255/rm.getCount() # because cell numbers are low, not two should get the same colour
+	ip.setValue(colour)
+	ip.fill(rois[index])
+gdSave = GenericDialog("Save mask")
+gdSave.addMessage("Press OK if the mask image should be stored in the same directory where your input files came from."
+			  "\nOr choose another directory.")
+gdSave.setCancelLabel("Choose directory...")
+gdSave.showDialog()
+if not gdSave.wasCanceled():
+	path = IJ.getDirectory("current")
+else:
+	path = DirectoryChooser("Choose directory to store mask file").getDirectory()
+
+fs = FileSaver(mask)
+maskFile = path + images.niba.getShortTitle() + "_mask_cells.tif"
+fs.saveAsTiff(maskFile)
+
+# ask user if she/he wants to proceed using the mask with IDL merger
+gd = GenericDialog("Choose merger.py directory")
+gd.addMessage("Do you want to procees with the optained cell mask and launch the IDL merger?"
+			  "\nBe aware that you need a loc file in addition.")
+gd.setOKLabel("Proceed with IDL merger")
+gd.showDialog()
+pathToMerger = DirectoryChooser("Choose directory to lastprefs file").getDirectory()
+print pathToMerger
+# try to already set preferences with optained mask
+try:
+	lastprefs = "last_preferences.pref"
+	preferences_fileIn = open(pathToMerger+lastprefs, 'r')
+	preferences_dict = {}
+	preferences_dict["mskpath"] = path
+	preferences_dict["locpath"] = ""
+	preferences_dict["outpath"] = ""
+	preferences_dict["channeltokens"] = ""
+	preferences_fileOut = open(join(pathToMerger, lastprefs), "w")
+	pickle.dump(preferences_dict, preferences_fileOut)
+	print "wrote preferences down"
+except:
+	pass
+#launch merger
+os.system("python "+ pathToMerger+ "merger.py")
+print "Done for real."
