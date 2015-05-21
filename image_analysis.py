@@ -772,26 +772,34 @@ fs.saveAsTiff(maskFile)
 
 # ask user if she/he wants to proceed using the mask with IDL merger
 gd = GenericDialog("Choose merger.py directory")
-gd.addMessage("Do you want to procees with the optained cell mask and launch the IDL merger?"
+gd.addMessage("Do you want to proceed with the optained cell mask and launch the IDL merger?"
 			  "\nBe aware that you need a loc file in addition.")
 gd.setOKLabel("Proceed with IDL merger")
 gd.showDialog()
 pathToMerger = DirectoryChooser("Choose directory to lastprefs file").getDirectory()
 print pathToMerger
 # try to already set preferences with optained mask
-try:
-	lastprefs = "last_preferences.pref"
-	preferences_fileIn = open(pathToMerger+lastprefs, 'r')
-	preferences_dict = {}
-	preferences_dict["mskpath"] = path
-	preferences_dict["locpath"] = ""
-	preferences_dict["outpath"] = ""
-	preferences_dict["channeltokens"] = ""
-	preferences_fileOut = open(join(pathToMerger, lastprefs), "w")
-	pickle.dump(preferences_dict, preferences_fileOut)
-	print "wrote preferences down"
-except:
-	pass
+# try to set preferences with optained mask
+lastprefs = "last_preferences.pref"
+text = ("(dp0\n"
+	   "S'locpath'\n"
+	   "p1\n"
+	   "S''\n"
+	   "p2\n"
+	   "sS'channeltokens'\n"
+	   "p3\n"
+	   "S''\n"
+	   "p4\n"
+	   "sS'mskpath'\n"
+	   "p5\n"
+	   "S'"+path+"'\n"
+	   "p6\n"
+	   "sS'outpath'\n"
+	   "p7\n"
+	   "S''\n"
+	   "p8\n"
+	   "s.")
+os.system("echo "+ '"'+text+'"'+ " > "+ lastprefs)
 #launch merger
-os.system("python "+ pathToMerger+ "merger.py")
+os.system("python "+ pathToMerger+ "merger.py &")
 print "Done for real."
