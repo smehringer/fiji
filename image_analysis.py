@@ -1,6 +1,5 @@
 import re
 import os.path
-import pickle
 from ij import ImagePlus, IJ, Prefs, WindowManager
 from ij.io import OpenDialog, FileSaver, Opener, ImportDialog, DirectoryChooser
 from ij.plugin import ZProjector
@@ -12,103 +11,124 @@ from java.awt import Rectangle
 from ij.process import ImageProcessor
 from ij.gui import GenericDialog,WaitForUserDialog
 
-class ImageHolder(object):
-    def __init__(self):
-        self.niba = None
-        self.bf   = None
-        self.cfp  = None
-        self.wu   = None
-        self.mrna = None
+# ==============================================================================
+# Classes
+# ==============================================================================
 
-    def checkStatus(self):
+# ------------------------------------------------------------------------------
+# Class ImageHolder
+# ------------------------------------------------------------------------------
+class ImageHolder(object):
+	""" Hold images important for further analysis."""
+	def __init__(self):
+		self.niba = None
+		self.bf   = None
+		self.cfp  = None
+		self.wu   = None
+		self.mrna = None
+
+	def checkStatus(self):
 		for img in [self.niba, self.bf, self.wu, self.cfp, self.mrna]:
 			if img == None:
 				return False
 		return True
 
+# ------------------------------------------------------------------------------
+# Class My_table
+# ------------------------------------------------------------------------------
 class My_table(object):
-    def __init__(self,column_names):
-        self.rows  = []
-        self.keys  = column_names
-        self.n     = len(column_names)
-        self.count = 0
-        
-    def addRow(self,r): # input is a list of attributes
-    	if len(r) != len(self.keys):
-    		# exception method
-    		return(False)
-    	row = {}
-    	for k in range(self.n):
-        	row[self.keys[k]] = r[k]
-    	self.rows.append(row)
-    	self.count = self.count + 1
+	""" Provide (result-)table that is easy to fill, access and alter"""
+	def __init__(self,column_names):
+		self.rows  = []
+		self.keys  = column_names
+		self.n     = len(column_names)
+		self.count = 0
 
-    def updateRow(self,i,r):
-    	if len(r) != len(self.keys):
+	def addRow(self,r): # input is a list of attributes
+		if len(r) != len(self.keys):
     		# exception method
-    		return(False)
-    	
-    	for k in range(self.n):
-        	self.rows[i][self.keys[k]] = r[k]
-    
-    def getEntry(self,i,name):
-    	return(self.rows[i][name])
-    
-    def setEntry(self,i,name,entry):
-    	self.rows[i][name] = entry
-    	return(True)
-    
-    def delRow(self,i):
+			return(False)
+		row = {}
+		for k in range(self.n):
+			row[self.keys[k]] = r[k]
+		self.rows.append(row)
+		self.count = self.count + 1
+
+	def updateRow(self,i,r):
+		if len(r) != len(self.keys):
+    		# exception method
+			return(False)
+		for k in range(self.n):
+			self.rows[i][self.keys[k]] = r[k]
+
+	def getEntry(self,i,name):
+		return(self.rows[i][name])
+
+	def setEntry(self,i,name,entry):
+		self.rows[i][name] = entry
+		return(True)
+
+	def delRow(self,i):
 		del self.rows[i]
 		self.count = self.count - 1
-    
-    def getColumn(self,name):
-    	c = []
-    	for r in range(self.count):
-    		c = c + [self.rows[r][name]]
-    	return(c)
-    	
-    def getIndexByEntry(self,name,entry):
-    	c = []
-    	for r in range(self.count):
-    		if self.rows[r][name]==entry:
-    			c = c + [r]
-    	return(c)
-    
-    def getRow(self, i):
-        return self.rows[i]
 
-    def __repr__(self):
-    	string = "row_n\t"
-    	for k in self.keys:
-    		string = string + k + "\t"
-    	string = string + "\n0\t"
-    	for r in range(self.count):
-    		for k in self.keys:
-    			string = string + str(self.rows[r][k]) + "\t"
-    		string = string + "\n" + str(r+1) + "\t"
-    	return string
+	def getColumn(self,name):
+		c = []
+		for r in range(self.count):
+			c = c + [self.rows[r][name]]
+		return(c)
 
+	def getIndexByEntry(self,name,entry):
+		c = []
+		for r in range(self.count):
+			if self.rows[r][name]==entry:
+				c = c + [r]
+		return(c)
+
+	def getRow(self, i):
+		return self.rows[i]
+
+	def __repr__(self):
+		string = "row_n\t"
+		for k in self.keys:
+			string = string + k + "\t"
+		string = string + "\n0\t"
+		for r in range(self.count):
+			for k in self.keys:
+				string = string + str(self.rows[r][k]) + "\t"
+			string = string + "\n" + str(r+1) + "\t"
+		return string
+
+# ==============================================================================
+# Functions
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# maxZProjection()
+# ------------------------------------------------------------------------------
 def maxZprojection(stackimp,start,stop):
-    zp = ZProjector(stackimp)
-    zp.setMethod(ZProjector.MAX_METHOD)
-    zp.setStartSlice(start)
-    zp.setStopSlice(stop)
-    zp.doProjection()
-    zpimp = zp.getProjection()
-    return zpimp
+	"""
+	Return a maximum projection of param:'stackimp' (stacked image) 
+	from slice param:'start' to param:'stop'.
+	[Implements Fiji>Image>Stacks>Z Project]
+	"""
+	zp = ZProjector(stackimp)
+	zp.setMethod(ZProjector.MAX_METHOD)
+	zp.setStartSlice(start)
+	zp.setStopSlice(stop)
+	zp.doProjection()
+	zpimp = zp.getProjection()
+	return zpimp
 
-def getVal(table, i):
-	x = table.getValue('X', i)
-	y = table.getValue('Y', i)
-	return [x, y] 
-
+# ------------------------------------------------------------------------------
+# calculateThresholdValue()
+# ------------------------------------------------------------------------------
 def calculateThresholdValue(imp,percentage):
-	##
-	## implements tha manually definable percentage of pixel 
-	## when thresholding (using Image>>Adjust>>Threshold)
-	##
-
+	"""
+	Return grey value (0-255) (threshold value) where param:'percentage' % 
+	of the param:'img' is chosen (black area).
+	[Mirrors Histogramm in Fiji>Image>Adjust>Threshold]
+	"""
 	# calculates a histogram of pixel values
 	ma = imp.getProcessor().getMax()
 	mi = imp.getProcessor().getMin()
@@ -126,10 +146,19 @@ def calculateThresholdValue(imp,percentage):
 		i = i + 1
 	return(int((256-i+2)*steps) + mi)
 
+# ------------------------------------------------------------------------------
+# getInitialROIs()
+# ------------------------------------------------------------------------------
 def getInitialROIs(niba, rm, pa):
-	# in order to work properly the image niba must be open when given to this function
+	"""
+	Process image param:'niba' for automatic segmentation using the Particle Analyser 
+	(param:'pa'). Resulting ROIs are stored in the Roi-Manager (param:'rm').
+	Return processed image.
+	[User interaction needed]
+	"""
+	# image 'niba' must be open when given to this function
 	if niba.getNSlices() != 1:
-		# todo: identify "good" slices instead of setting the start(7) and stop(n-5) slice?
+		# todo:: identify "good" slices?
 		Zniba = maxZprojection(niba, 7, niba.getNSlices()-5)
 		print "hello"
 	else: Zniba = niba.duplicate()
@@ -141,8 +170,10 @@ def getInitialROIs(niba, rm, pa):
 	IJ.run(Zniba, "Gaussian Blur...","radius=10")
 
 	Zniba.show()
+	# manual thresholding through user
 	IJ.run(Zniba, "Threshold...","")
-	WaitForUserDialog("Segmentation Threshold", "Please alter threshold before you proceed with OK").show()
+	WaitForUserDialog("Segmentation Threshold", 
+					  "Please alter threshold before you proceed with OK").show()
 	
 	Zniba.show()
 	IJ.run(Zniba, "Make Binary","")
@@ -154,18 +185,27 @@ def getInitialROIs(niba, rm, pa):
 	else:
 		print "There was a problem in analyzing"
 
-	#Zniba.show()
 	rm.show()
-	#Zniba.hide()
-	#Zniba.close()
 	return(Zniba)
 
+# ------------------------------------------------------------------------------
+# countNuclei()
+# ------------------------------------------------------------------------------
 def countNuclei(rm, wu, pa, roi_table, niba):
-	
-	if wu.getNSlices() != 1: Zwu = maxZprojection(wu,10,15)
+	"""
+	Return table of analyzed nuclei. Update param:'roi_table' to assign each 
+	nuclei to its cell.
+	param:'rm' Roi Manager
+	param:'wu' image that is is processed for nuclei segmentation.
+	param:'pa' Particle Analyser used for segmentation.
+	param:'roi_table' table with info for each cell(roi) 
+	param:'niba' image to measure whi5 itensities for each nuclei
+	"""
+	if wu.getNSlices() != 1: 
+		Zwu = maxZprojection(wu,10,15)
 	else: 
 		Zwu = wu.duplicate()
-		Zwu.killRoi()# if any roi appears on image ignore it. if no roi appears this will have no influence
+		Zwu.killRoi()# if any roi appears on image ignore it
 	
 	IJ.run(Zwu, "Enhance Contrast","saturated Pixel=0.5")
 	IJ.run(Zwu, "Smooth","")
@@ -174,7 +214,8 @@ def countNuclei(rm, wu, pa, roi_table, niba):
 	
 	lower_threshold	= calculateThresholdValue(Zwu,3.3)
 	
-	Zwu.getProcessor().setThreshold(lower_threshold, Zwu.getProcessor().getMax(), ImageProcessor.NO_LUT_UPDATE)
+	Zwu.getProcessor().setThreshold(lower_threshold, Zwu.getProcessor().getMax(), 
+									ImageProcessor.NO_LUT_UPDATE)
 	IJ.run(Zwu, "Threshold","dark background")
 	old_roi_count = rm.getCount()
 	rois = rm.getRoisAsArray()
@@ -182,19 +223,22 @@ def countNuclei(rm, wu, pa, roi_table, niba):
 	pa.analyze(Zwu)
 	
 	nuclei_table = My_table(["area","whi5","X","Y","width","height"])
-	Zniba = maxZprojection(niba, 7, niba.getNSlices()-5);#Zniba.show()
+	Zniba = maxZprojection(niba, 7, niba.getNSlices()-5);
 	rt = ResultsTable.getResultsTable()
 	rt.reset()
 	IJ.run("Set Measurements...","area ; centroid ;  integrated density ; bounding rectangle")
 	rm.deselect()
-	
+
+	# store measurements in nuclei_table
 	for i in range(old_roi_count,rm.getCount()):
 		rm.select(Zniba,i)
 		IJ.run(Zniba,"Measure","")
 		i = i - old_roi_count # result table starts with 0
 		nuclei_table.addRow([rt.getValue('Area',i),rt.getValue('IntDen',i),
 						  rt.getValue('X',i),rt.getValue('Y',i),rt.getValue('Width',i),rt.getValue('Height',i)])
-			
+
+	# assign each roi to a cell 
+	# by storing its id (row number in nuclei_table) in roi_table>n_id
 	for i in range(nuclei_table.count):
 		x = int(nuclei_table.getEntry(i,'X'))
 		y = int(nuclei_table.getEntry(i,'Y'))
@@ -206,38 +250,46 @@ def countNuclei(rm, wu, pa, roi_table, niba):
 	rt.reset()		
 	rm.setSelectedIndexes(range(old_roi_count,rm.getCount()))
 	rm.runCommand("delete") # delete nuclei rois
-	#Zniba.hide()
 	return(nuclei_table)
 
-
-def countAndMeasureSPB(rm,cfp,pa,roi_table,mean_grey_value): # spindel-pole-bodies
-
+# ------------------------------------------------------------------------------
+# countAndMeasureSPB()
+# ------------------------------------------------------------------------------
+def countAndMeasureSPB(rm, cfp, pa, roi_table, mean_grey_value): # spindel-pole-bodies
+	"""
+	Return table of analyzed spindle pole bodies (spb). Update param:'roi_table' to 
+	assign each spb to its cell.
+	param:'rm' Roi Manager
+	param:'cfp' image that is is processed for spb segmentation.
+	param:'pa' Particle Analyser used for segmentation.
+	param:'roi_table' table with info for each cell(roi) 
+	param:'mean:grey_value' mean grey value of the background in 'niba' image
+	"""
 	old_roi_count = rm.getCount()
 	rois = rm.getRoisAsArray()
-	
 	Zcfp = maxZprojection(cfp,1,cfp.getNSlices()) # take all slices
 	
 	lower_threshold	= calculateThresholdValue(Zcfp,0.19)
 	Zcfp.getProcessor().setThreshold(lower_threshold, Zcfp.getProcessor().getMax(), ImageProcessor.NO_LUT_UPDATE)
 	IJ.run(Zcfp, "Threshold","dark background")
 	IJ.run(Zcfp, "Despeckle","")
-	#Zcfp.show()
 
 	pa.analyze(Zcfp)	
 	spb_table = My_table(["area","spb_intensity","high_intensity","X","Y"])
-	
+
 	rt = ResultsTable.getResultsTable()
 	rt.reset()
 	IJ.run("Set Measurements...","area ; min & max grey value; mean grey value; centroid ;  integrated density")
 	rm.deselect()
-	
+
+	# store measurements in spb_table
 	for i in range(old_roi_count,rm.getCount()):
 		rm.select(Zcfp,i)
 		IJ.run(Zcfp,"Measure","")
 		i = i - old_roi_count # result table starts with 0
 		spb_table.addRow([rt.getValue('Area',i),rt.getValue('IntDen',i),"no",
 						  rt.getValue('X',i),rt.getValue('Y',i)])
-	
+	# evaluate each spb, wether it might be noise
 	to_delete = []
 	for i in range(spb_table.count):
 		rm.deselect()
@@ -273,7 +325,9 @@ def countAndMeasureSPB(rm,cfp,pa,roi_table,mean_grey_value): # spindel-pole-bodi
 	rt.reset()		
 	rm.setSelectedIndexes(range(old_roi_count,rm.getCount()))
 	rm.runCommand("delete") # delete spindle pole body rois
-	
+
+	# assign each roi to a cell 
+	# by storing its id (row number in nuclei_table) in roi_table>n_id
 	for i in range(roi_table.count):
 		if roi_table.getEntry(i,"spb") > 2:
 			spbs = sorted([(spb_table.getEntry(j,'area'),j) for j in roi_table.getEntry(i,"spb_id")])
@@ -291,12 +345,17 @@ def countAndMeasureSPB(rm,cfp,pa,roi_table,mean_grey_value): # spindel-pole-bodi
 		if spb_table.getEntry(i,"spb_intensity") >= 2.1*av_intensity:
 			spb_table.setEntry(i,"high_intensity","yes")
 
-	#Zcfp.hide()
 	rt.reset()
 	return(spb_table)
-	
+
+# ------------------------------------------------------------------------------
+# getRoiMeasurements()
+# ------------------------------------------------------------------------------
 def getRoiMeasurements(rm,roi_table,niba):
-	
+	"""
+	Return the mean grey value of the background in param:'niba'.
+	Store roi measurements in param:'roi_table'.
+	"""
 	rois = rm.getRoisAsArray()
 	n = len(rois)
 	indexes = rm.getSelectedIndexes() # save current selection
@@ -329,7 +388,11 @@ def getRoiMeasurements(rm,roi_table,niba):
 	Zniba.hide()
 	return(mean_grey_value)
 
+# ------------------------------------------------------------------------------
+# touchingRoi()
+# ------------------------------------------------------------------------------
 def touchingRoi(roi,roi2):
+	""" Return True if param:'roi' and param:'roi2' are touching. """
 	r = roi.getBounds()
 	for x in range(r.width):
 		for y in range(r.height):
@@ -337,27 +400,15 @@ def touchingRoi(roi,roi2):
 				if roi2.contains(r.x+x , r.y+y):
 					return(True)	
 	return(False)
-	
-def shrinkRoi2(roi,touching_rois):
-	n = len(touching_rois)
-	index = rm.getRoiIndex(roi)
-	while (n>=1):
-		IJ.run("Enlarge...","enlarge=-1") # shrink roi
-		rm.runCommand("Update")
-		roi = rm.getRoi(index) # get shrinked roi
-		r = 0
-		while( r < n and n>=1):
-			if touchingRoi(roi,touching_rois[r]) == False :
-				if n == 1 : 
-					return(touching_rois)
-				else:
-					touching_rois = touching_rois[:r] + touching_rois[r+1:]
-					n = n - 1
-					r = r - 1
-			r = r + 1
 
+# ------------------------------------------------------------------------------
+# shrinkRoi()
+# ------------------------------------------------------------------------------
 def shrinkRoi(roi,touching_rois):
-	# shrink roi until it touches other cells only slightly
+	""" 
+	Shrink param:'roi' until it only touches the closest roi(s) in 
+	param:'touching_rois' with as few pixels as possible.
+	"""
 	n = len(touching_rois)
 	index = rm.getRoiIndex(roi)
 	which = [1 for i in range(n)]
@@ -376,12 +427,20 @@ def shrinkRoi(roi,touching_rois):
 		
 	return([touching_rois[i] for i in [x for x,y in enumerate(which) if y == 1]])
 
+# ------------------------------------------------------------------------------
+# combineTwoRois()
+# ------------------------------------------------------------------------------
 def combineTwoRois(index,index2,roi_table,rm):
-	print "Combined",index,"and",index2
+	""" 
+	Cobine Measurements of rois at param:'index' and param:'index2'. Delete
+	roi that has the bigger index.
+	"""
 	rm.deselect()
 	rm.setSelectedIndexes([index,index2])
+	# "Or" and "Update" will combine both rois 
+	# and save the resulting new roi at smaller index
 	rm.runCommand("OR")
-	rm.runCommand("Update") # "Or" and "Update" will combine the two rois and save this new roi in the first roi (smallest index)
+	rm.runCommand("Update") 
 	rm.deselect()
 	
 	if index < index2: 
@@ -396,7 +455,6 @@ def combineTwoRois(index,index2,roi_table,rm):
 		roi_table.setEntry(index,"whi5",roi_table.getEntry(index2,"whi5")+roi_table.getEntry(index,"whi5"))
 		roi_table.setEntry(index,"name",roi_table.getEntry(index2,"name"))
 		roi_table.delRow(index2)
-		return(True)
 	else: 
 		# roi at index will be deleted -> store information in roi at index2
 		rm.select(index)
@@ -408,10 +466,25 @@ def combineTwoRois(index,index2,roi_table,rm):
 		roi_table.setEntry(index2,"area",roi_table.getEntry(index2,"area")+roi_table.getEntry(index,"area"))
 		roi_table.setEntry(index2,"whi5",roi_table.getEntry(index2,"whi5")+roi_table.getEntry(index,"whi5"))
 		roi_table.delRow(index)
+	print "Combined",index,"and",index2
 		
-	
+# ------------------------------------------------------------------------------
+# evaluate_noiseOrBud()
+# ------------------------------------------------------------------------------
 def evaluate_noiseOrBud(index, rm, roi_table):
-	print "Evaluate: Noise or Bud" 
+	"""
+	Evaluation:  
+	* Enlarge roi at param:'index'
+	* If roi does not touch any other roi its considered NOISE is deleted
+	* If roi touches any roi with a nuclei (identified cell) its considered a BUD
+	  ** Count touching rois
+	  ** If there are more than one potential mother cell: evaluate_Bud()
+	  ** If its only one mother cell:
+	     *** If mother cell has 2 spb: evaluate_G2_vs_PM()
+	     *** If mother cell has 1 spb: ANAPHASE
+	     *** If mother cell has 0 spb: LATE S
+	  ** combine mother cell and bud
+	"""
 	rm.deselect() 
 	rm.select(index)
 	
@@ -480,7 +553,15 @@ def evaluate_noiseOrBud(index, rm, roi_table):
 		combineTwoRois(index,touching_rois[0],roi_table,rm)
 	return True
 
+# ------------------------------------------------------------------------------
+# evaluate_watershed()
+# ------------------------------------------------------------------------------
 def evaluate_watershed(index,rm,roi_table):
+	"""
+	Return list of rois that were seperated from param:'index' by watershed.
+	Evaluation:
+	* rois that are only 2 pixels apart are considered as "watershedded"
+	"""
 	# rois that are only 2 pixels apart can only (with a very high probability) 
 	# have been seperated by watersehd
 	# -> check for touching rois in an 2 pixels wider area:
@@ -518,6 +599,9 @@ def evaluate_watershed(index,rm,roi_table):
 	
 	return(touching_rois)
 
+# ------------------------------------------------------------------------------
+# evaluate_Bud()										   [evaluate_NoiseOrBud]
+# ------------------------------------------------------------------------------
 def evaluate_Bud(index,roi,touching_rois):
 	touching_rois_spb = [ (i,roi_table.getEntry(i,"spb")) for i in touching_rois ]
 	if roi_table.getEntry(index,"spb")==0:
@@ -543,6 +627,9 @@ def evaluate_Bud(index,roi,touching_rois):
 		roi_table.setEntry(sorted( spbs )[0][1],"name","P/M")
 		return([ sorted( spbs )[0][1] ])
 
+# ------------------------------------------------------------------------------
+# evaluate_G2_vs_PM()
+# ------------------------------------------------------------------------------
 def evaluate_G2_vs_PM(index,roi_table,rm,nuclei_table,spb_table):
 	##
 	## if cell has two spindle-pole-bodys but one nucleus
@@ -563,7 +650,10 @@ def evaluate_G2_vs_PM(index,roi_table,rm,nuclei_table,spb_table):
 		roi_table.setEntry(index,"name","P/M")
 	else :    
 		roi_table.setEntry(index,"name","G2")
-	
+
+# ------------------------------------------------------------------------------
+# overlay_area()
+# ------------------------------------------------------------------------------
 def overlay_area(r,r2,rm):
 	roi  = rm.getRoi(r)
 	roi2 = rm.getRoi(r2)
@@ -576,11 +666,17 @@ def overlay_area(r,r2,rm):
 					count = count +1
 	return(count)
 
+# ------------------------------------------------------------------------------
+# high_whi5()
+# ------------------------------------------------------------------------------
 def high_whi5(index,nucleus_id,roi_table):
 	whi5_diff = (roi_table.getEntry(index,"whi5")/(roi_table.getEntry(index,"area")))-(nuclei_table.getEntry(nucleus_id,"whi5")/(nuclei_table.getEntry(nucleus_id,"area")) )
 	if whi5_diff <= -10: return True
 	else: return False	
 
+# ------------------------------------------------------------------------------
+# userDialog()
+# ------------------------------------------------------------------------------
 def userDialog(rm):
 	WaitForUserDialog("Cellsegmentation was finished", "Please look at your images and make any neccessary changes with the ROI Manager. \n You can delete ROIs or add new ones using Fiji. \n When you press OK a next window will let you change the cell cycle phases.").show()
 	
@@ -614,6 +710,9 @@ def userDialog(rm):
 				return False
 		return True
 
+# ------------------------------------------------------------------------------
+# getImages()
+# ------------------------------------------------------------------------------
 def getImages():
 	# close all active windows that might interfere with plugin
 	wins = WindowManager.getIDList()
@@ -644,6 +743,9 @@ def getImages():
 
 	return images
 
+# ------------------------------------------------------------------------------
+# evaluate_no_nuclei()
+# ------------------------------------------------------------------------------
 def evaluate_no_nuclei(roi_table, rm):
 	# reversed list because then if a roi is deleted, no shift in roi indices occurs
 	cells_without_nuclei = roi_table.getIndexByEntry("nuclei", 0)[::-1]
@@ -652,7 +754,10 @@ def evaluate_no_nuclei(roi_table, rm):
 		roi_table.setEntry(index, "eval", "yes")
 		evaluate_noiseOrBud(index, rm, roi_table)
 	return True
-		
+
+# ------------------------------------------------------------------------------
+# evaluate_two_spbs()
+# ------------------------------------------------------------------------------
 def evaluate_two_spbs(roi_table, rm, nuclei_table, spb_table):
 	rois_to_evaluate = roi_table.getIndexByEntry("eval", "no")
 	cells_with_two_spbs = [c for c in roi_table.getIndexByEntry("spb", 2)[::-1] if c in rois_to_evaluate]
@@ -666,6 +771,9 @@ def evaluate_two_spbs(roi_table, rm, nuclei_table, spb_table):
 			roi_table.setEntry(index, "eval", "yes")
 	return True
 
+# ------------------------------------------------------------------------------
+# evaluate_highIntensity()
+# ------------------------------------------------------------------------------
 def evaluate_highIntensity_spb(roi_table, spb_table):
 	rois_to_evaluate = roi_table.getIndexByEntry("eval", "no")
 	cells_with_high_intensity_spb = [c for c in roi_table.getIndexByEntry("spb",1)[::-1] if roi_table.getEntry(c,"spb_id")[0] in spb_table.getIndexByEntry("high_intensity","yes") and c in roi_table.getIndexByEntry("eval","no")]
@@ -675,7 +783,9 @@ def evaluate_highIntensity_spb(roi_table, spb_table):
 		roi_table.setEntry(index,"eval","yes")
 	return True
 
-
+# ------------------------------------------------------------------------------
+# evaluate_many_neighbours()
+# ------------------------------------------------------------------------------
 def evaluate_many_neighbours(roi_table, rm):
 	# if a cell has very near neighbours those cells have probably been seperated by watershed
 	remaining_cells = [(c,evaluate_watershed(c,rm,roi_table)) for c in roi_table.getIndexByEntry("eval","no") ]
@@ -698,6 +808,9 @@ def evaluate_many_neighbours(roi_table, rm):
 			roi_table.setEntry(min_index,"name","ANA")
 		roi_table.setEntry(min_index,"eval","yes")
 
+# ------------------------------------------------------------------------------
+# evaluate_one_neighbour()
+# ------------------------------------------------------------------------------
 def evaluate_one_neighbour(roi_table, rm):
 	remaining_cells = [(c, evaluate_watershed(c,rm,roi_table)) for c in roi_table.getIndexByEntry("eval", "no") ]
 	cells_with_one_neighbour = [(c, w) for c,w in remaining_cells if len(w)==1][::-1]
@@ -713,6 +826,9 @@ def evaluate_one_neighbour(roi_table, rm):
 		rm.runCommand("Update")
 		combineTwoRois(cells_with_one_neighbour[i][0], cells_with_one_neighbour[i][1][0], roi_table, rm)
 
+# ------------------------------------------------------------------------------
+# evaluate_remaining()
+# ------------------------------------------------------------------------------
 def evaluate_remaining(roi_table, rm):
 	rois_to_evaluate = roi_table.getIndexByEntry("eval", "no")
 	for index in rois_to_evaluate:
@@ -730,6 +846,9 @@ def evaluate_remaining(roi_table, rm):
 				roi_table.setEntry(index, "name", "ANA")
 		roi_table.setEntry(index, "eval", "yes")
 
+# ------------------------------------------------------------------------------
+# renaimRois()
+# ------------------------------------------------------------------------------
 def renameRois(rm, roi_table):
 	rm.deselect()
 	for index in range(rm.getCount()):
@@ -738,7 +857,9 @@ def renameRois(rm, roi_table):
 		rm.deselect()
 
 
-############################################# main ####################################################
+# ==============================================================================
+# Main
+# ==============================================================================
 
 # get images through user Dialog
 images = getImages()
