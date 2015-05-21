@@ -12,12 +12,82 @@ from java.awt import Rectangle
 from ij.process import ImageProcessor
 from ij.gui import GenericDialog,WaitForUserDialog
 
-import sys
-sys.path.insert(0,'/home/basar/Personal/Svenja/Scripts/')
-sys.path.insert(0,'/home/basar/Personal/Dominique_Sydow/image_analysis/20140805_IDLmerger/')
-from class_ImageHolder import ImageHolder
-from table import My_table
+class ImageHolder(object):
+    def __init__(self):
+        self.niba = None
+        self.bf   = None
+        self.cfp  = None
+        self.wu   = None
+        self.mrna = None
 
+    def checkStatus(self):
+		for img in [self.niba, self.bf, self.wu, self.cfp, self.mrna]:
+			if img == None:
+				return False
+		return True
+
+class My_table(object):
+    def __init__(self,column_names):
+        self.rows  = []
+        self.keys  = column_names
+        self.n     = len(column_names)
+        self.count = 0
+        
+    def addRow(self,r): # input is a list of attributes
+    	if len(r) != len(self.keys):
+    		# exception method
+    		return(False)
+    	row = {}
+    	for k in range(self.n):
+        	row[self.keys[k]] = r[k]
+    	self.rows.append(row)
+    	self.count = self.count + 1
+
+    def updateRow(self,i,r):
+    	if len(r) != len(self.keys):
+    		# exception method
+    		return(False)
+    	
+    	for k in range(self.n):
+        	self.rows[i][self.keys[k]] = r[k]
+    
+    def getEntry(self,i,name):
+    	return(self.rows[i][name])
+    
+    def setEntry(self,i,name,entry):
+    	self.rows[i][name] = entry
+    	return(True)
+    
+    def delRow(self,i):
+		del self.rows[i]
+		self.count = self.count - 1
+    
+    def getColumn(self,name):
+    	c = []
+    	for r in range(self.count):
+    		c = c + [self.rows[r][name]]
+    	return(c)
+    	
+    def getIndexByEntry(self,name,entry):
+    	c = []
+    	for r in range(self.count):
+    		if self.rows[r][name]==entry:
+    			c = c + [r]
+    	return(c)
+    
+    def getRow(self, i):
+        return self.rows[i]
+
+    def __repr__(self):
+    	string = "row_n\t"
+    	for k in self.keys:
+    		string = string + k + "\t"
+    	string = string + "\n0\t"
+    	for r in range(self.count):
+    		for k in self.keys:
+    			string = string + str(self.rows[r][k]) + "\t"
+    		string = string + "\n" + str(r+1) + "\t"
+    	return string
 
 def maxZprojection(stackimp,start,stop):
     zp = ZProjector(stackimp)
@@ -776,30 +846,31 @@ gd.addMessage("Do you want to proceed with the optained cell mask and launch the
 			  "\nBe aware that you need a loc file in addition.")
 gd.setOKLabel("Proceed with IDL merger")
 gd.showDialog()
-pathToMerger = DirectoryChooser("Choose directory to lastprefs file").getDirectory()
-print pathToMerger
-# try to already set preferences with optained mask
-# try to set preferences with optained mask
-lastprefs = "last_preferences.pref"
-text = ("(dp0\n"
-	   "S'locpath'\n"
-	   "p1\n"
-	   "S''\n"
-	   "p2\n"
-	   "sS'channeltokens'\n"
-	   "p3\n"
-	   "S''\n"
-	   "p4\n"
-	   "sS'mskpath'\n"
-	   "p5\n"
-	   "S'"+path+"'\n"
-	   "p6\n"
-	   "sS'outpath'\n"
-	   "p7\n"
-	   "S''\n"
-	   "p8\n"
-	   "s.")
-os.system("echo "+ '"'+text+'"'+ " > "+ lastprefs)
-#launch merger
-os.system("python "+ pathToMerger+ "merger.py &")
+if gd.wasOKed():
+	pathToMerger = DirectoryChooser("Choose directory to lastprefs file").getDirectory()
+	print pathToMerger
+	# try to already set preferences with optained mask
+	# try to set preferences with optained mask
+	lastprefs = "last_preferences.pref"
+	text = ("(dp0\n"
+		   "S'locpath'\n"
+		   "p1\n"
+		   "S''\n"
+		   "p2\n"
+		   "sS'channeltokens'\n"
+		   "p3\n"
+		   "S''\n"
+		   "p4\n"
+		   "sS'mskpath'\n"
+		   "p5\n"
+		   "S'"+path+"'\n"
+		   "p6\n"
+		   "sS'outpath'\n"
+		   "p7\n"
+		   "S''\n"
+		   "p8\n"
+		   "s.")
+	os.system("echo "+ '"'+text+'"'+ " > "+ lastprefs)
+	#launch merger
+	os.system("python "+ pathToMerger+ "merger.py &")
 print "Done for real."
