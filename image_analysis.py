@@ -1,5 +1,6 @@
 import re
 import os.path
+
 from ij import ImagePlus, IJ, Prefs, WindowManager
 from ij.io import OpenDialog, FileSaver, Opener, ImportDialog, DirectoryChooser
 from ij.plugin import ZProjector
@@ -19,7 +20,7 @@ from ij.gui import GenericDialog,WaitForUserDialog
 # Class ImageHolder
 # ------------------------------------------------------------------------------
 class ImageHolder(object):
-	""" Hold images important for further analysis."""
+	""" Hold images that are important for further analysis."""
 	def __init__(self):
 		self.niba = None
 		self.bf   = None
@@ -206,27 +207,27 @@ def countNuclei(rm, wu, pa, roi_table, niba):
 	else: 
 		Zwu = wu.duplicate()
 		Zwu.killRoi()# if any roi appears on image ignore it
-	
+
+	# analyze wu image
 	IJ.run(Zwu, "Enhance Contrast","saturated Pixel=0.5")
 	IJ.run(Zwu, "Smooth","")
 	IJ.run(Zwu, "Gaussian Blur...","radius=12")
 	Zwu.show()
-	
 	lower_threshold	= calculateThresholdValue(Zwu,3.3)
-	
 	Zwu.getProcessor().setThreshold(lower_threshold, Zwu.getProcessor().getMax(), 
 									ImageProcessor.NO_LUT_UPDATE)
 	IJ.run(Zwu, "Threshold","dark background")
 	old_roi_count = rm.getCount()
 	rois = rm.getRoisAsArray()
-	
 	pa.analyze(Zwu)
-	
+
+	# prepare for measurements
 	nuclei_table = My_table(["area","whi5","X","Y","width","height"])
 	Zniba = maxZprojection(niba, 7, niba.getNSlices()-5);
 	rt = ResultsTable.getResultsTable()
 	rt.reset()
-	IJ.run("Set Measurements...","area ; centroid ;  integrated density ; bounding rectangle")
+	IJ.run("Set Measurements...",
+		   "area ; centroid ;  integrated density ; bounding rectangle")
 	rm.deselect()
 
 	# store measurements in nuclei_table
@@ -235,7 +236,8 @@ def countNuclei(rm, wu, pa, roi_table, niba):
 		IJ.run(Zniba,"Measure","")
 		i = i - old_roi_count # result table starts with 0
 		nuclei_table.addRow([rt.getValue('Area',i),rt.getValue('IntDen',i),
-						  rt.getValue('X',i),rt.getValue('Y',i),rt.getValue('Width',i),rt.getValue('Height',i)])
+						     rt.getValue('X',i),rt.getValue('Y',i),
+						     rt.getValue('Width',i),rt.getValue('Height',i)])
 
 	# assign each roi to a cell 
 	# by storing its id (row number in nuclei_table) in roi_table>n_id
@@ -244,8 +246,10 @@ def countNuclei(rm, wu, pa, roi_table, niba):
 		y = int(nuclei_table.getEntry(i,'Y'))
 		for roi in rois:
 			if roi.contains(x,y): 
-				roi_table.setEntry(rm.getRoiIndex(roi),"nuclei", roi_table.getEntry(rm.getRoiIndex(roi),"nuclei") + 1)
-				roi_table.setEntry(rm.getRoiIndex(roi),"n_id", roi_table.getEntry(rm.getRoiIndex(roi),"n_id") + [i])
+				roi_table.setEntry(rm.getRoiIndex(roi),"nuclei", 
+					roi_table.getEntry(rm.getRoiIndex(roi),"nuclei") + 1)
+				roi_table.setEntry(rm.getRoiIndex(roi),"n_id", 
+					roi_table.getEntry(rm.getRoiIndex(roi),"n_id") + [i])
 
 	rt.reset()		
 	rm.setSelectedIndexes(range(old_roi_count,rm.getCount()))
@@ -255,7 +259,7 @@ def countNuclei(rm, wu, pa, roi_table, niba):
 # ------------------------------------------------------------------------------
 # countAndMeasureSPB()
 # ------------------------------------------------------------------------------
-def countAndMeasureSPB(rm, cfp, pa, roi_table, mean_grey_value): # spindel-pole-bodies
+def countAndMeasureSPB(rm, cfp, pa, roi_table, mean_grey_value):
 	"""
 	Return table of analyzed spindle pole bodies (spb). Update param:'roi_table' to 
 	assign each spb to its cell.
@@ -267,19 +271,22 @@ def countAndMeasureSPB(rm, cfp, pa, roi_table, mean_grey_value): # spindel-pole-
 	"""
 	old_roi_count = rm.getCount()
 	rois = rm.getRoisAsArray()
-	Zcfp = maxZprojection(cfp,1,cfp.getNSlices()) # take all slices
-	
+
+	# analyze cfp image
+	Zcfp = maxZprojection(cfp,1,cfp.getNSlices())
 	lower_threshold	= calculateThresholdValue(Zcfp,0.19)
-	Zcfp.getProcessor().setThreshold(lower_threshold, Zcfp.getProcessor().getMax(), ImageProcessor.NO_LUT_UPDATE)
+	Zcfp.getProcessor().setThreshold(lower_threshold, Zcfp.getProcessor().getMax(), 
+									 ImageProcessor.NO_LUT_UPDATE)
 	IJ.run(Zcfp, "Threshold","dark background")
 	IJ.run(Zcfp, "Despeckle","")
+	pa.analyze(Zcfp)
 
-	pa.analyze(Zcfp)	
+	# prepare for measurements
 	spb_table = My_table(["area","spb_intensity","high_intensity","X","Y"])
-
 	rt = ResultsTable.getResultsTable()
 	rt.reset()
-	IJ.run("Set Measurements...","area ; min & max grey value; mean grey value; centroid ;  integrated density")
+	IJ.run("Set Measurements...",
+		   "area ; min & max grey value; mean grey value; centroid ;  integrated density")
 	rm.deselect()
 
 	# store measurements in spb_table
@@ -309,43 +316,46 @@ def countAndMeasureSPB(rm, cfp, pa, roi_table, mean_grey_value): # spindel-pole-
 			else:
 				IJ.run(Zcfp,"Measure","")
 				spb_table.setEntry(i,"spb_intensity",rt.getValue('IntDen',0))
-	
 	for i in to_delete:
 		spb_table.delRow(i)
-	
+
+	# assign each roi to a cell 
+	# by storing its id (row number in spb_table) in roi_table>spb_id
 	for i in range(spb_table.count):
 		x = int(spb_table.getEntry(i,'X'))
 		y = int(spb_table.getEntry(i,'Y'))
 		for roi in rois:
-			# because cast to int causes round off, check for possible points
-			if roi.contains(x,y) or roi.contains(x+1,y) or roi.contains(x,y+1) or roi.contains(x+1,y+1):  
-				roi_table.setEntry(rm.getRoiIndex(roi),"spb", roi_table.getEntry(rm.getRoiIndex(roi),"spb") + 1)
-				roi_table.setEntry(rm.getRoiIndex(roi),"spb_id", roi_table.getEntry(rm.getRoiIndex(roi),"spb_id") + [i])
+			# because cast to int causes round off, check for all possible points
+			if (roi.contains(x,y) or roi.contains(x+1,y) or 
+			   roi.contains(x,y+1) or roi.contains(x+1,y+1)):  
+				roi_table.setEntry(rm.getRoiIndex(roi),"spb", 
+					roi_table.getEntry(rm.getRoiIndex(roi),"spb") + 1)
+				roi_table.setEntry(rm.getRoiIndex(roi),"spb_id",
+					roi_table.getEntry(rm.getRoiIndex(roi),"spb_id") + [i])
 
 	rt.reset()		
 	rm.setSelectedIndexes(range(old_roi_count,rm.getCount()))
 	rm.runCommand("delete") # delete spindle pole body rois
 
-	# assign each roi to a cell 
-	# by storing its id (row number in nuclei_table) in roi_table>n_id
+	# ensure that every cell has no more than two spb's
 	for i in range(roi_table.count):
 		if roi_table.getEntry(i,"spb") > 2:
 			spbs = sorted([(spb_table.getEntry(j,'area'),j) for j in roi_table.getEntry(i,"spb_id")])
 			spbs = spbs[-2:] # only take the biggest two spindle pole bodys for the cell
 			roi_table.setEntry(i,"spb",2)
 			roi_table.setEntry(i,"spb_id",[spbs[j][1] for j in [0,1]])
-	
+
+	# identify spb's with a twice as high intensity
 	spbs = sum(roi_table.getColumn("spb_id"),[])
 	intensities = sorted( [ spb_table.getEntry(j,"spb_intensity") for j in spbs] )
-	# calculate median
-	if len(intensities) %2 == 1: av_intensity = intensities[((len(intensities)+1)/2)-1]
-	else: av_intensity = float(sum(intensities[(len(intensities)/2)-1:(len(intensities)/2)+1]))/2.0
-	
+	if len(intensities) %2 == 1:
+		av_intensity = intensities[((len(intensities)+1)/2)-1]
+	else:
+		av_intensity = float(sum(intensities[(len(intensities)/2)-1:(len(intensities)/2)+1]))/2.0
 	for i in spbs:
 		if spb_table.getEntry(i,"spb_intensity") >= 2.1*av_intensity:
 			spb_table.setEntry(i,"high_intensity","yes")
 
-	rt.reset()
 	return(spb_table)
 
 # ------------------------------------------------------------------------------
@@ -353,18 +363,15 @@ def countAndMeasureSPB(rm, cfp, pa, roi_table, mean_grey_value): # spindel-pole-
 # ------------------------------------------------------------------------------
 def getRoiMeasurements(rm,roi_table,niba):
 	"""
-	Return the mean grey value of the background in param:'niba'.
+	Return the mean grey value of the background of param:'niba'.
 	Store roi measurements in param:'roi_table'.
 	"""
-	rois = rm.getRoisAsArray()
-	n = len(rois)
-	indexes = rm.getSelectedIndexes() # save current selection
-	rm.deselect()
+	# prepare for measurements
 	Zniba = maxZprojection(niba, 7, niba.getNSlices()-5);Zniba.show()
 	rt = ResultsTable.getResultsTable()
 	rt.reset()
-	
-	IJ.run("Set Measurements...","area ; mean grey value ; centroid ;  integrated density ; bounding rectangle")
+	IJ.run("Set Measurements...",
+		   "area ; mean grey value ; centroid ;  integrated density ; bounding rectangle")
 	
 	# get mean grey value
 	rm.deselect()
@@ -375,16 +382,17 @@ def getRoiMeasurements(rm,roi_table,niba):
 	rt.reset()
 	rm.deselect()
 
-	# get measurements
-	for i in range(n):
+	# get measurements and store them in roi_table
+	for i in range(rm.getCount()):
 		rm.select(Zniba,i)
 		IJ.run(Zniba,"Measure","")
-		roi_table.addRow([rm.getName(i)[:4],rt.getValue('Area',i),0,[],0,[],int(rt.getValue('X',i)),int(rt.getValue('Y',i)),
-		"no",rt.getValue('IntDen',i),rt.getValue('Width',i),rt.getValue('Height',i)])
-		
+		roi_table.addRow([rm.getName(i)[:4],rt.getValue('Area',i),0,[],0,[],
+						 int(rt.getValue('X',i)),int(rt.getValue('Y',i)),
+						 "no",rt.getValue('IntDen',i),rt.getValue('Width',i),
+						 rt.getValue('Height',i)])
+
 	rt.reset()
 	rm.deselect() 
-	rm.setSelectedIndexes(indexes) # restore selection
 	Zniba.hide()
 	return(mean_grey_value)
 
@@ -424,7 +432,7 @@ def shrinkRoi(roi,touching_rois):
 				if touchingRoi(roi,rm.getRoi(touching_rois[r])) == False :
 					s = s - 1
 					change = change + [r]
-		
+
 	return([touching_rois[i] for i in [x for x,y in enumerate(which) if y == 1]])
 
 # ------------------------------------------------------------------------------
@@ -442,7 +450,7 @@ def combineTwoRois(index,index2,roi_table,rm):
 	rm.runCommand("OR")
 	rm.runCommand("Update") 
 	rm.deselect()
-	
+
 	if index < index2: 
 		# roi at index2 will be deleted -> store information in roi at index
 		rm.select(index2)
@@ -473,6 +481,7 @@ def combineTwoRois(index,index2,roi_table,rm):
 # ------------------------------------------------------------------------------
 def evaluate_noiseOrBud(index, rm, roi_table):
 	"""
+	Alter roi_table entries according to the evaluation of param:'index'
 	Evaluation:  
 	* Enlarge roi at param:'index'
 	* If roi does not touch any other roi its considered NOISE is deleted
@@ -488,20 +497,18 @@ def evaluate_noiseOrBud(index, rm, roi_table):
 	rm.deselect() 
 	rm.select(index)
 	
-	# enlarge particle to half the size of an average cell 
-	# enlarge by 1 pixel enlarges area by about 100 (if cell is round) -> divide by 100
+	# enlarge particle to half the size of an average cell
 	av = sum(roi_table.getColumn('area'))/rm.getCount() # average area
 	roi_area = roi_table.getEntry(index,"area")
-	pix = int((av/2 - roi_area)/100)
+	pix = int((av/2 - roi_area)/100) # enlarge by 1 pixel enlarges circular area by ~100
 	if pix <= 1: pix = 2
-	s_pix	= "enlarge=" + str(pix)
-	
+	enlarge_by_pix	= "enlarge=" + str(pix)
 	rm.select(index)
-	IJ.run("Enlarge...",s_pix)
+	IJ.run("Enlarge...",enlarge_by_pix)
 	rm.runCommand("Update")
 	roi = rm.getRoi(index) # get updated enlarged roi
-	
-	# check if rois are even near the investigated roi
+
+	# check if other rois are even near the investigated roi
 	rois_to_evaluate = roi_table.getIndexByEntry("eval","no")
 	rois_in_range = []
 	for check_roi in rois_to_evaluate:
@@ -516,34 +523,39 @@ def evaluate_noiseOrBud(index, rm, roi_table):
 		if ( (abs(x1-x2) < w1 + w2) and (abs(y1-y2) < h1 + h2) ):
 			rois_in_range = rois_in_range + [check_roi]
 	
-	# check if rois in range touch investigated roi
+	# check if remaining other rois touch investigated roi
 	touching_rois = []
 	for check_roi in rois_in_range:
 		if touchingRoi(roi,rm.getRoi(check_roi)):
 			if roi_table.getEntry(check_roi,"nuclei") > 0:
 				touching_rois = touching_rois + [check_roi]
 				print "Found a touching roi ",check_roi,"for roi " + str(index)
-			
-	if len(touching_rois) == 0: 
+
+	# evlaute investigated roi
+	if len(touching_rois) == 0: # roi is noise
 		rm.runCommand("Delete")
 		roi_table.delRow(index)
 		return(False,index) 
-	else:
+	else: # roi is a bud
 		touching_rois = shrinkRoi(roi,touching_rois)
 		IJ.run("Enlarge...","enlarge=1")
 		rm.runCommand("Update")
 		roi = rm.getRoi(index) # get updated enlarged roi
 		
-		if len(touching_rois) > 1: touching_rois = evaluate_Bud(index,roi,touching_rois)
-		else: 
+		if len(touching_rois) > 1:
+			# evaluate touching rois returning one 'mother cell'
+			touching_rois = evaluate_Bud(index,roi,touching_rois)
+			if touching_rois == None: return False
+		else:
+			# evaluate cell cycle phase
 			if roi_table.getEntry(touching_rois[0],"spb")==2:
 				evaluate_G2_vs_PM(touching_rois[0],roi_table,rm,nuclei_table,spb_table)
+			elif roi_table.getEntry(index,"spb")==1:
+				# probably nuclei analysis was wrong because roi (index) has a
+				# spb but no nucleus (very unlikely)
+				roi_table.setEntry(touching_rois[0],"name","ANA")
 			else:
-				if roi_table.getEntry(index,"spb")==1:
-					roi_table.setEntry(touching_rois[0],"name","ANA")
-					# probably nuclei analysis was wrong
-				else:
-					roi_table.setEntry(touching_rois[0],"name","Late S")
+				roi_table.setEntry(touching_rois[0],"name","Late S")
 		
 		roi_table.setEntry(index,"eval","yes")
 		print "~~~ Evaluated ROI",index,roi_table.getEntry(index,"name")
@@ -567,15 +579,14 @@ def evaluate_watershed(index,rm,roi_table):
 	# -> check for touching rois in an 2 pixels wider area:
 	rm.deselect() 
 	rm.select(index)
-	
 	IJ.run("Enlarge...","enlarge=2")
 	rm.runCommand("Update")
 	roi = rm.getRoi(index) # get updated enlarged roi
-
 	rois = roi_table.getIndexByEntry("eval","no")
 	rois.remove(index)
-	rois2 = rois + [] # copy
-	# check if rois are even near the investigated roi
+	rois2 = rois + [] # copy instead of reference
+
+	# check if other rois are even near the investigated roi (faster)
 	for check_roi in rois:
 		x1 =  roi_table.getEntry(index,'X')
 		x2 =  roi_table.getEntry(check_roi,'X')
@@ -585,16 +596,17 @@ def evaluate_watershed(index,rm,roi_table):
 		w2 =  roi_table.getEntry(check_roi,'width')
 		h1 =  roi_table.getEntry(index,'height')
 		h2 =  roi_table.getEntry(check_roi,'height')
-		
 		# + 5 to encounter any rounding mistakes to be sure 
-		if ( (abs(x1-x2) > (w1/2 + w2/2 + 5)) or (abs(y1-y2) > (h1/2 + h2/2 + 5)) ): rois2.remove(check_roi)
-	# check if rois in range touch investigated roi
+		if ( (abs(x1-x2) > (w1/2 + w2/2 + 5)) or (abs(y1-y2) > (h1/2 + h2/2 + 5)) ): 
+			rois2.remove(check_roi)
+
+	# now check if remaining other rois touch investigated roi
 	touching_rois = []
 	for check_roi in rois2:
 		if touchingRoi(roi,rm.getRoi(check_roi)):
 			touching_rois = touching_rois + [check_roi]
 
-	IJ.run("Enlarge...","enlarge=-2")
+	IJ.run("Enlarge...","enlarge=-2") # shrink roi again
 	rm.runCommand("Update")
 	
 	return(touching_rois)
@@ -603,22 +615,42 @@ def evaluate_watershed(index,rm,roi_table):
 # evaluate_Bud()										   [evaluate_NoiseOrBud]
 # ------------------------------------------------------------------------------
 def evaluate_Bud(index,roi,touching_rois):
+	"""
+	Return cell from param:'touching_rois' that suits best as the 'mother cell'.
+	Evaluation:
+	* if roi has no spb
+	  ** potential mother cells = cells with two spbs
+	  ** if there is one potential cells
+	  	 *** FOUND mother cell. evaluate cell cycle phase
+	  ** if there are more thann one potential cells
+	  	 *** take the cell that has the spb with the minimum distance to the bud
+	  	 *** FOUND mother cell.
+	  ** if there is no potential mother cell
+	  	 *** there might have been an ERROR in analyzing the images
+	* if roi has a spb
+	  ** take the cell that has the spb with the minimum distance to the buds spb
+	  ** FOUND mother cell.
+	"""
 	touching_rois_spb = [ (i,roi_table.getEntry(i,"spb")) for i in touching_rois ]
+
+	# evaluate roi at index
 	if roi_table.getEntry(index,"spb")==0:
 		# potential mother cells are those with two spb's
 		potential_mothercells = [i for i,x in touching_rois_spb if x == 2]
+
 		if len(potential_mothercells)==1:
-			evaluate_G2_vs_PM(potential_mothercells[0],roi_table,rm,nuclei_table,spb_table)
+			evaluate_G2_vs_PM(potential_mothercells[0], roi_table, rm, nuclei_table, spb_table)
 			return(potential_mothercells)
-		if len(potential_mothercells)>1 :
+		elif len(potential_mothercells)>1 :
 			x = roi_table.getEntry(index,"X")
 			y = roi_table.getEntry(index,"Y")
-			# take the cell that has the spb with the minimum distance to the bud (bud centroid)
-			spbs = sum([[ (((x-spb_table.getEntry(j,"X"))**2+(y-spb_table.getEntry(j,"Y"))**2)**(0.5),i) for j in roi_table.getEntry(i,"spb_id")] for i in potential_mothercells],[])
-			evaluate_G2_vs_PM(sorted( spbs )[0][1],roi_table,rm,nuclei_table,spb_table)
-			return([ sorted( spbs )[0][1] ])
+			# calculate distance to bud (roi at index) for each spb
+			distances = sum([[ (((x-spb_table.getEntry(j,"X"))**2+(y-spb_table.getEntry(j,"Y"))**2)**(0.5),i) for j in roi_table.getEntry(i,"spb_id")] for i in potential_mothercells],[])
+			evaluate_G2_vs_PM(sorted( distances )[0][1],roi_table,rm,nuclei_table,spb_table)
+			return([ sorted( distances )[0][1] ])
 		else:
 			print "Could not evaluate bud. Leaving it to be manually evaluated"
+			return (None)
 	else:
 		x = spb_table.getEntry(roi_table.getEntry(index,"spb_id")[0],"X")
 		y = spb_table.getEntry(roi_table.getEntry(index,"spb_id")[0],"Y")
@@ -630,12 +662,14 @@ def evaluate_Bud(index,roi,touching_rois):
 # ------------------------------------------------------------------------------
 # evaluate_G2_vs_PM()
 # ------------------------------------------------------------------------------
-def evaluate_G2_vs_PM(index,roi_table,rm,nuclei_table,spb_table):
-	##
-	## if cell has two spindle-pole-bodys but one nucleus
-	## this function decides wether the cell cycle phase is G2 or P/M
-	## the decision is made by comparing the distance of the spb's to the nucleus diameter
-	##
+def evaluate_G2_vs_PM(index, roi_table, rm, nuclei_table, spb_table):
+	"""
+	Alter roi_table entries according to the cell cycle evaluation of param:'index'
+	Evaluation:  
+	* get distance d between spbs and diameter D of the nucleus
+	* if d > D cell is in P/M
+	* if d < D cell is in G2   ('the official rules for segmentation')
+	"""
 	
 	# get spb koordinates and (euclidean-)distance d between them
 	sk = [(spb_table.getEntry(i,"X"),spb_table.getEntry(i,"Y")) for i in roi_table.getEntry(index,"spb_id")]
@@ -646,15 +680,14 @@ def evaluate_G2_vs_PM(index,roi_table,rm,nuclei_table,spb_table):
 		  nuclei_table.getEntry(roi_table.getEntry(index,"n_id")[0],"height") )/2
 
 	# evaluate cell
-	if d > D: 
-		roi_table.setEntry(index,"name","P/M")
-	else :    
-		roi_table.setEntry(index,"name","G2")
+	if d > D: roi_table.setEntry(index,"name","P/M")
+	else :    roi_table.setEntry(index,"name","G2")
 
 # ------------------------------------------------------------------------------
 # overlay_area()
 # ------------------------------------------------------------------------------
-def overlay_area(r,r2,rm):
+def overlay_area(r, r2, rm):
+	""" Return the area (number of pixels) that roi r and r2 have in common."""
 	roi  = rm.getRoi(r)
 	roi2 = rm.getRoi(r2)
 	r = roi.getBounds()
@@ -670,7 +703,12 @@ def overlay_area(r,r2,rm):
 # high_whi5()
 # ------------------------------------------------------------------------------
 def high_whi5(index,nucleus_id,roi_table):
-	whi5_diff = (roi_table.getEntry(index,"whi5")/(roi_table.getEntry(index,"area")))-(nuclei_table.getEntry(nucleus_id,"whi5")/(nuclei_table.getEntry(nucleus_id,"area")) )
+	"""Return TRUE if whi5 intensity is considered high (whi5_diff <= -10) """
+	whi5_diff = ((roi_table.getEntry(index,"whi5")/
+				 (roi_table.getEntry(index,"area"))) -
+				 (nuclei_table.getEntry(nucleus_id,"whi5")/
+				 (nuclei_table.getEntry(nucleus_id,"area")))
+				)
 	if whi5_diff <= -10: return True
 	else: return False	
 
@@ -678,16 +716,26 @@ def high_whi5(index,nucleus_id,roi_table):
 # userDialog()
 # ------------------------------------------------------------------------------
 def userDialog(rm):
-	WaitForUserDialog("Cellsegmentation was finished", "Please look at your images and make any neccessary changes with the ROI Manager. \n You can delete ROIs or add new ones using Fiji. \n When you press OK a next window will let you change the cell cycle phases.").show()
-	
+	""" Communicate with the user if he wants to alter rois or their cell cycle"""
+
+	WaitForUserDialog("Cellsegmentation was finished", 
+					 ("Please look at your images and make any neccessary "
+					  "changes with the ROI Manager. \n You can delete ROIs "
+					  "or add new ones using Fiji. \n When you press OK a next "
+					  "window will let you change the cell cycle phases.")).show()
+
+	# create dialog with a text box for each cell and its cell cycle phase
 	gd = GenericDialog("Cell Cycle")  
 	for r in range(rm.getCount()):
 		if len(re.split("\ -\ ",rm.getName(r)))==1: gd.addStringField(("roi#"+str(r+1))," ")
 		else:	gd.addStringField(("roi#"+str(r+1)), re.split("\ -\ ",rm.getName(r))[1] )   
+	gd.setCancelLabel("Return to Roi Manager")
+	gd.setOKLabel("OK and Proceed")
 	gd.showDialog()  
 
-	if gd.wasCanceled(): 
-		print "User canceled dialog!"
+	# process user input
+	if gd.wasCanceled():
+		# read out options anyway
 		for r in range(rm.getCount()):
 			name = gd.getNextString()
 			rm.deselect()
@@ -699,14 +747,16 @@ def userDialog(rm):
 		for r in range(rm.getCount()):
 			name = gd.getNextString()
 			correct = name in ["G1", "g1", "G2", "g2",
-								"Ana", "ANA", "ana",
-								"PM", "pm", "p/m", "P/M",
-								"early s", "Early S", "EARLY S", "early_s", "Early_S",
-								"late s", "Late S", "LATE S", "late_s", "Late_S",
-								"tc","TC","t/c","T/C"
-								]
-			if name == "" or correct== False: 
-				WaitForUserDialog("Cellcylcle names were incomplete or false", "You have not filled in all cellcycle names or no correct ones. \n Please check again and correct your input").show()
+							   "Ana", "ANA", "ana",
+							   "PM", "pm", "p/m", "P/M",
+							   "early s", "Early S", "EARLY S", "early_s", "Early_S",
+							   "late s", "Late S", "LATE S", "late_s", "Late_S",
+							   "tc","TC","t/c","T/C"]
+			if name == "" or correct == False:
+				WaitForUserDialog("Cellcylcle names were incomplete or false", 
+								 ("You have not filled in all cell cycle names "
+								  "or no correct ones. \n Please check again and "
+								  "correct your input")).show()
 				return False
 		return True
 
@@ -714,17 +764,43 @@ def userDialog(rm):
 # getImages()
 # ------------------------------------------------------------------------------
 def getImages():
+	"""
+	Return images saved by openImage().
+	Call openImage() as long as the dialog wasn't canceled and until all images 
+	have bin selected.
+	"""
 	# close all active windows that might interfere with plugin
 	wins = WindowManager.getIDList()
 	if wins != None:
 		for w in wins:
 			WindowManager.getImage(w).close()
-	
+
 	# get images
+	print "i have been here"
+	images = ImageHolder()
+	o = False
+	
+	while (o == False):
+		WaitForUserDialog("Choose images", 
+						 ("Please choose the following images:"
+						  "\nNIBA, CFP, WU, NG/CYS, BF")).show()
+		if not openImages(images):
+			return None
+		if images.checkStatus():
+			o = True
+
+	return images
+
+# ------------------------------------------------------------------------------
+# openImages()													   [getImages()]
+# ------------------------------------------------------------------------------
+def openImages(images):
+	""" Open user dialog and save images in an ImageHolder object."""
 	o = Opener()
 	o.openMultiple()
-	images = ImageHolder()
 	wins = WindowManager.getIDList()
+	if wins == None:
+		return False
 	for w in wins:
 		img = WindowManager.getImage(w)
 		name = img.getTitle()
@@ -740,13 +816,13 @@ def getImages():
 			images.bf = img
 		elif "NG" in name: # or maybe other names ?
 			images.mrna = img
-
-	return images
+	return True
 
 # ------------------------------------------------------------------------------
 # evaluate_no_nuclei()
 # ------------------------------------------------------------------------------
 def evaluate_no_nuclei(roi_table, rm):
+	""" Call 'evaluate_noiseOrBud()' for each cell without an nucleus."""
 	# reversed list because then if a roi is deleted, no shift in roi indices occurs
 	cells_without_nuclei = roi_table.getIndexByEntry("nuclei", 0)[::-1]
 	for index in cells_without_nuclei:
@@ -759,6 +835,13 @@ def evaluate_no_nuclei(roi_table, rm):
 # evaluate_two_spbs()
 # ------------------------------------------------------------------------------
 def evaluate_two_spbs(roi_table, rm, nuclei_table, spb_table):
+	"""
+	Alter roi_table for each cell that has two spb's.
+	Evaluation:
+	* if cell has one nucleus: evaluate_G2_vs_PM()
+	* if cell has more than one nucleus: ANAPHASE
+	(* cell can't have no nucleus because it would have been already evaluated!)
+	"""
 	rois_to_evaluate = roi_table.getIndexByEntry("eval", "no")
 	cells_with_two_spbs = [c for c in roi_table.getIndexByEntry("spb", 2)[::-1] if c in rois_to_evaluate]
 	for index in cells_with_two_spbs:
@@ -766,7 +849,7 @@ def evaluate_two_spbs(roi_table, rm, nuclei_table, spb_table):
 		if roi_table.getEntry(index, "nuclei")==1:
 			evaluate_G2_vs_PM(index, roi_table, rm, nuclei_table, spb_table)
 			roi_table.setEntry(index, "eval", "yes")
-		if roi_table.getEntry(index, "nuclei")>1:
+		else:
 			roi_table.setEntry(index, "name", "ANA")
 			roi_table.setEntry(index, "eval", "yes")
 	return True
@@ -775,6 +858,7 @@ def evaluate_two_spbs(roi_table, rm, nuclei_table, spb_table):
 # evaluate_highIntensity()
 # ------------------------------------------------------------------------------
 def evaluate_highIntensity_spb(roi_table, spb_table):
+	""" Alter roi_table for each cell that has a spb with high intensity."""
 	rois_to_evaluate = roi_table.getIndexByEntry("eval", "no")
 	cells_with_high_intensity_spb = [c for c in roi_table.getIndexByEntry("spb",1)[::-1] if roi_table.getEntry(c,"spb_id")[0] in spb_table.getIndexByEntry("high_intensity","yes") and c in roi_table.getIndexByEntry("eval","no")]
 	for index in cells_with_high_intensity_spb:
@@ -787,6 +871,17 @@ def evaluate_highIntensity_spb(roi_table, spb_table):
 # evaluate_many_neighbours()
 # ------------------------------------------------------------------------------
 def evaluate_many_neighbours(roi_table, rm):
+	"""
+	Alter roi_table for each cell that has more than one neighbour.
+	Assumption: If cells still stick together and are not evauated yet
+				they are considered to be one cell.
+	Evaluation:
+	* choose another cell as a partner that has the most overlaying area
+	* combine those cells
+	* evaluate cell cycle phase based on whi5 intensity
+	  ** high whi5 intensity: T/C
+	  ** low whi5 intensity: ANAPHASE
+	"""
 	# if a cell has very near neighbours those cells have probably been seperated by watershed
 	remaining_cells = [(c,evaluate_watershed(c,rm,roi_table)) for c in roi_table.getIndexByEntry("eval","no") ]
 	cells_with_too_many_neighbours = [(c,w) for c,w in remaining_cells if len(w)>=2][::-1]
@@ -795,7 +890,6 @@ def evaluate_many_neighbours(roi_table, rm):
 		rm.select(c)
 		IJ.run("Enlarge...","enlarge=1")
 		rm.runCommand("Update")
-		#choose those cell as a partner that has the most overlaying area
 		chosen_cell = sorted([ (overlay_area(c,c1,rm),c1) for c1 in w ])[-1:][0][1]
 		combineTwoRois(c,chosen_cell,roi_table,rm)
 		
@@ -812,13 +906,18 @@ def evaluate_many_neighbours(roi_table, rm):
 # evaluate_one_neighbour()
 # ------------------------------------------------------------------------------
 def evaluate_one_neighbour(roi_table, rm):
+	""" 
+	Combine each cell with its one neighbour.
+	Assumption: If cells still stick together and are not evauated yet
+				they are considered to be one cell.
+	"""
 	remaining_cells = [(c, evaluate_watershed(c,rm,roi_table)) for c in roi_table.getIndexByEntry("eval", "no") ]
 	cells_with_one_neighbour = [(c, w) for c,w in remaining_cells if len(w)==1][::-1]
+
 	# remove duplicates ( if (a,b) are neighbouring cells, than also (b,a) -> remove one tuple )
 	for i in range(len(cells_with_one_neighbour)/2) :
 		cells_with_one_neighbour.remove((cells_with_one_neighbour[i][1][0], [cells_with_one_neighbour[i][0]]))
-	# if by now the there are to neighbouring cells that have not been evaluated otherwise
-	# the possibily is high that those two belong together -> combine them without further information
+
 	for i in range(len(cells_with_one_neighbour)):
 		print "~~~ Evaluate roi", cells_with_one_neighbour[i][0], roi_table.getEntry(cells_with_one_neighbour[i][0], "name")
 		rm.select(cells_with_one_neighbour[i][0])
@@ -830,6 +929,16 @@ def evaluate_one_neighbour(roi_table, rm):
 # evaluate_remaining()
 # ------------------------------------------------------------------------------
 def evaluate_remaining(roi_table, rm):
+	""" 
+	Alter roi_table for each remaining single cell.
+	Evaluation:
+	* if cell has one nucleus
+	  ** if nucleus has a high whi5 intensity: G1
+	  ** if nucleus has a low  whi5 intensity: EARLY S
+	* if cell has more than one nucleus
+	  ** if nucleus has a high whi5 intensity: T/C
+	  ** if nucleus has a low  whi5 intensity: ANAPHASE
+	"""
 	rois_to_evaluate = roi_table.getIndexByEntry("eval", "no")
 	for index in rois_to_evaluate:
 		print "~~~ Evaluate roi", index, roi_table.getEntry(index, "name")
@@ -847,129 +956,62 @@ def evaluate_remaining(roi_table, rm):
 		roi_table.setEntry(index, "eval", "yes")
 
 # ------------------------------------------------------------------------------
-# renaimRois()
+# renameRois()
 # ------------------------------------------------------------------------------
 def renameRois(rm, roi_table):
+	""" Rename Rois according to roi_table entries."""
 	rm.deselect()
 	for index in range(rm.getCount()):
 		rm.select(index)
 		rm.runCommand("Rename",(str(index+1)+ " - "+ roi_table.getEntry(index, "name")))
 		rm.deselect()
 
+# ------------------------------------------------------------------------------
+# createMask()
+# ------------------------------------------------------------------------------
+def createMask(mask, rm):
+	""" Creates an RGB cell mask that can be processed by IDLmerger."""
+	ip = mask.getProcessor()
+	ip.setValue(255)
+	ip.fill() # fills the whole picture black
 
-# ==============================================================================
-# Main
-# ==============================================================================
+	# now fill each roi with a different shade of grey
+	rois = rm.getRoisAsArray()
+	for index in range(len(rois)):
+		colour = index*255/rm.getCount() # because cell numbers are low, not two should get the same colour
+		ip.setValue(colour)
+		ip.fill(rois[index])
 
-# get images through user Dialog
-images = getImages()
-if not images.checkStatus():
-	print "ERROR: Didn't get all neccessary images.\nPlease Select the following Image files: NIBA, WU, CFP, BF, NG"
+# ------------------------------------------------------------------------------
+# saveMask()
+# ------------------------------------------------------------------------------
+def saveMask(mask, rm):
+	""" Ask user for a directory and store param:'mask' in there."""
+	gdSave = GenericDialog("Save mask")
+	gdSave.addMessage(("Press OK if the mask image should be stored in the same "
+					   "directory where your input files came from."
+			  		   "\nOr choose another directory."))
+	gdSave.setCancelLabel("Choose directory...")
+	gdSave.showDialog()
+	if not gdSave.wasCanceled():
+		path = IJ.getDirectory("current")
+	else:
+		path = DirectoryChooser("Choose directory to store mask file").getDirectory()
+		if path == None: # user canceled directory dialog
+			path = IJ.getDirectory("current")
 
-# prepare imageJ instances (roi manager, particle analyzer, results table)
-rm = RoiManager.getInstance() 
-if rm != None: rm.reset()
-else: rm = RoiManager()
-table = ResultsTable()
-options = ParticleAnalyzer.ADD_TO_MANAGER | ParticleAnalyzer.EXCLUDE_EDGE_PARTICLES | ParticleAnalyzer.INCLUDE_HOLES
-pa = ParticleAnalyzer(options, ParticleAnalyzer.AREA, table, 0, 100000000)
+	fs = FileSaver(mask)
+	maskFile = path + images.niba.getShortTitle() + "_mask_cells.tif"
+	fs.saveAsTiff(maskFile)
+	return (path)
 
-# get initial rois
-mask = getInitialROIs(images.niba, rm, pa) 
-
-#get roi measurements such like area, koordinates, grey value, and whi5 intensity
-roi_table = My_table(["name","area","nuclei","n_id","spb","spb_id","X","Y","eval","whi5","width","height"])
-mean_grey_value = getRoiMeasurements(rm,roi_table,images.niba)
-
-# get nuclei info for each cell
-nuclei_table = countNuclei(rm, images.wu, pa, roi_table, images.niba) # update roi_table with nuclei counts
-
-# get spindle pole body info for each cell
-spb_table    = countAndMeasureSPB(rm, images.cfp, pa, roi_table, mean_grey_value)
-
-
-# now evaluate each roi
-print "\n======================= Start Evaluation =======================\n"
-
-print "\n======================= Cells without nuclei are evaluated. "
-evaluate_no_nuclei(roi_table, rm)
-
-print "\n======================= Cells with two spindle pole bodies are evaluated. "
-evaluate_two_spbs(roi_table, rm, nuclei_table, spb_table)
-
-print "\n======================= Cells with a spb of high intensity are evaluated. "
-evaluate_highIntensity_spb(roi_table, spb_table)
-
-print "\n======================= Cells with too many neighbours are evaluated. "
-evaluate_many_neighbours(roi_table, rm)
-
-print "\n======================= Cells with one neighbour are evaluated. "
-evaluate_one_neighbour(roi_table, rm)
-
-print "\n======================= Cells than remain are evaluated. "
-evaluate_remaining(roi_table, rm)
-
-print "\n======================= Done Evaluation=======================\n"
-renameRois(rm, roi_table)
-
-wins = WindowManager.getIDList()
-for w in wins:
-	WindowManager.getImage(w).hide()
-images.mrna.show()
-rm.runCommand("Show All")
-images.cfp.show()
-rm.runCommand("Show All")
-images.bf.show()
-rm.runCommand("Show All")
-Zniba = maxZprojection(images.niba, 7, images.niba.getNSlices()-5)
-Zniba.show()
-rm.runCommand("Show All")
-IJ.run("Tile")
-print "### Done."
-
-
-u = userDialog(rm)
-while(u == False): u = userDialog(rm)
-
-rm = RoiManager.getInstance()
-rm.runCommand("Show None")
-wins = WindowManager.getIDList()
-for w in wins:
-	WindowManager.getImage(w).close()
-
-# create RGB cell mask for further process
-ip = mask.getProcessor()
-ip.setValue(255)
-ip.fill() # fills the whole picture black
-# then fill each roi with a different shade of grey
-rois = rm.getRoisAsArray()
-for index in range(len(rois)):
-	colour = index*255/rm.getCount() # because cell numbers are low, not two should get the same colour
-	ip.setValue(colour)
-	ip.fill(rois[index])
-gdSave = GenericDialog("Save mask")
-gdSave.addMessage("Press OK if the mask image should be stored in the same directory where your input files came from."
-			  "\nOr choose another directory.")
-gdSave.setCancelLabel("Choose directory...")
-gdSave.showDialog()
-if not gdSave.wasCanceled():
-	path = IJ.getDirectory("current")
-else:
-	path = DirectoryChooser("Choose directory to store mask file").getDirectory()
-
-fs = FileSaver(mask)
-maskFile = path + images.niba.getShortTitle() + "_mask_cells.tif"
-fs.saveAsTiff(maskFile)
-
-# ask user if she/he wants to proceed using the mask with IDL merger
-gd = GenericDialog("Choose merger.py directory")
-gd.addMessage("Do you want to proceed with the optained cell mask and launch the IDL merger?"
-			  "\nBe aware that you need a loc file in addition.")
-gd.setOKLabel("Proceed with IDL merger")
-gd.showDialog()
-if gd.wasOKed():
+# ------------------------------------------------------------------------------
+# proceed_with_IDLmerger()
+# ------------------------------------------------------------------------------
+def proceed_with_IDLmerger(path):
+	""" If chosen, ask user for merger.py directory, save last preferences and 
+	launch IDLmerger. """
 	pathToMerger = DirectoryChooser("Choose directory to lastprefs file").getDirectory()
-	print pathToMerger
 	# try to already set preferences with optained mask
 	# try to set preferences with optained mask
 	lastprefs = "last_preferences.pref"
@@ -994,4 +1036,89 @@ if gd.wasOKed():
 	os.system("echo "+ '"'+text+'"'+ " > "+ lastprefs)
 	#launch merger
 	os.system("python "+ pathToMerger+ "merger.py &")
+
+# ==============================================================================
+# Main
+# ==============================================================================
+
+# get images through user Dialog
+images = getImages()
+
+# prepare imageJ instances (roi manager, particle analyzer, results table)
+rm = RoiManager.getInstance() 
+if rm != None: rm.reset()
+else: rm = RoiManager()
+table = ResultsTable()
+options = ParticleAnalyzer.ADD_TO_MANAGER | ParticleAnalyzer.EXCLUDE_EDGE_PARTICLES | ParticleAnalyzer.INCLUDE_HOLES
+pa = ParticleAnalyzer(options, ParticleAnalyzer.AREA, table, 0, 100000000)
+
+# get initial rois
+mask = getInitialROIs(images.niba, rm, pa) 
+
+#get roi measurements such like area, koordinates, grey value, and whi5 intensity
+roi_table = My_table(["name","area","nuclei","n_id","spb","spb_id","X","Y","eval","whi5","width","height"])
+mean_grey_value = getRoiMeasurements(rm, roi_table, images.niba)
+
+# get nuclei info for each cell
+nuclei_table = countNuclei(rm, images.wu, pa, roi_table, images.niba) # update roi_table with nuclei counts
+
+# get spindle pole body info for each cell
+spb_table    = countAndMeasureSPB(rm, images.cfp, pa, roi_table, mean_grey_value)
+
+
+# now evaluate each roi
+# the order of evaluation is crucial!
+print "\n======================= Start Evaluation =======================\n"
+print "\n======================= Cells without nuclei are evaluated. "
+evaluate_no_nuclei(roi_table, rm)
+print "\n======================= Cells with two spindle pole bodies are evaluated. "
+evaluate_two_spbs(roi_table, rm, nuclei_table, spb_table)
+print "\n======================= Cells with a spb of high intensity are evaluated. "
+evaluate_highIntensity_spb(roi_table, spb_table)
+print "\n======================= Cells with too many neighbours are evaluated. "
+evaluate_many_neighbours(roi_table, rm)
+print "\n======================= Cells with one neighbour are evaluated. "
+evaluate_one_neighbour(roi_table, rm)
+print "\n======================= Cells than remain are evaluated. "
+evaluate_remaining(roi_table, rm)
+print "\n======================= Done Evaluation=======================\n"
+
+renameRois(rm, roi_table)
+
+wins = WindowManager.getIDList()
+for w in wins:
+	WindowManager.getImage(w).hide()
+images.mrna.show()
+rm.runCommand("Show All")
+images.cfp.show()
+rm.runCommand("Show All")
+images.bf.show()
+rm.runCommand("Show All")
+Zniba = maxZprojection(images.niba, 7, images.niba.getNSlices()-5)
+Zniba.show()
+rm.runCommand("Show All")
+IJ.run("Tile")
+print "### Done."
+
+u = userDialog(rm)
+while(u == False): u = userDialog(rm)
+
+rm = RoiManager.getInstance()
+rm.runCommand("Show None")
+wins = WindowManager.getIDList()
+for w in wins:
+	WindowManager.getImage(w).close()
+
+# create RGB cell mask and save it
+createMask(mask, rm)
+path = saveMask(mask, rm)
+
+# ask user if she/he wants to proceed using the mask with IDL merger
+gd = GenericDialog("Choose merger.py directory")
+gd.addMessage("Do you want to proceed with the optained cell mask "
+			  "and launch the IDL merger?"
+			  "\nBe aware that you need a loc file in addition.")
+gd.setOKLabel("Proceed with IDL merger")
+gd.showDialog()
+if gd.wasOKed(): proceed_with_IDLmerger(path)
 print "Done for real."
